@@ -6,6 +6,14 @@ Sepo turns a repository into a **self-evolving repository**: a codebase that can
 
 ![Sepo overview](.agent/docs/assets/sepo-overview.png)
 
+## Agent Status
+
+This repository has Sepo configured and operational as of 2026-05-24:
+
+- **Auth:** OIDC broker with `CLAUDE_CODE_OAUTH_TOKEN` (Claude-backed)
+- **Memory:** `agent/memory` branch initialized
+- **Mention routing:** `@sepo-agent` triggers active on issues, PRs, and discussions
+
 ## Quick Start
 
 ### Start from this template
