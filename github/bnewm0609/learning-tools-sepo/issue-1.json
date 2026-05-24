@@ -12,13 +12,93 @@
         "login": "sepo-agent-app"
       },
       "authorAssociation": "NONE",
-      "body": "<!-- sepo-agent-onboarding-check -->\n## Sepo setup status\n\n### Current status\n\n- [x] GitHub App/auth: resolved via `oidc_broker`\n- [x] Model credentials: `CLAUDE_CODE_OAUTH_TOKEN` configured\n  - Agent provider: `claude` (CLAUDE_CODE_OAUTH_TOKEN is configured)\n- [ ] Memory: not initialized\n  - Run **[Actions > Agent / Memory / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-memory-bootstrap.yml)**.\n- [ ] Rubrics: not initialized\n  - Optional: run **[Actions > Agent / Rubrics / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-rubrics-initialization.yml)**.\n\n### Remaining setup\n\n- [ ] Run [Agent / Memory / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-memory-bootstrap.yml) to initialize memory branch `agent/memory`.\n- [ ] Optional: run [Agent / Rubrics / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-rubrics-initialization.yml) to initialize rubrics branch `agent/rubrics`.\n\n### Test Sepo\n\nAfter setup, try:\n\n```md\n@sepo-agent /answer Is Sepo configured correctly in this repository?\n```\n\nTry implementation:\n\n```md\n@sepo-agent /implement Create a small README update that verifies the agent can open a PR.\n```\n\nOn an open pull request:\n\n```md\n@sepo-agent /review\n```\n\nLast checked: [GitHub Actions run](https://github.com/bnewm0609/learning-tools-sepo/actions/runs/26347287681)\n",
+      "body": "<!-- sepo-agent-onboarding-check -->\n## Sepo setup status\n\n### Current status\n\n- [x] GitHub App/auth: resolved via `oidc_broker`\n- [x] Model credentials: `CLAUDE_CODE_OAUTH_TOKEN` configured\n  - Agent provider: `claude` (CLAUDE_CODE_OAUTH_TOKEN is configured)\n- [x] Memory: not initialized\n  - Run **[Actions > Agent / Memory / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-memory-bootstrap.yml)**.\n- [ ] Rubrics: not initialized\n  - Optional: run **[Actions > Agent / Rubrics / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-rubrics-initialization.yml)**.\n\n### Remaining setup\n\n- [x] Run [Agent / Memory / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-memory-bootstrap.yml) to initialize memory branch `agent/memory`.\n- [ ] Optional: run [Agent / Rubrics / Initialization](https://github.com/bnewm0609/learning-tools-sepo/actions/workflows/agent-rubrics-initialization.yml) to initialize rubrics branch `agent/rubrics`.\n\n### Test Sepo\n\nAfter setup, try:\n\n```md\n@sepo-agent /answer Is Sepo configured correctly in this repository?\n```\n\nTry implementation:\n\n```md\n@sepo-agent /implement Create a small README update that verifies the agent can open a PR.\n```\n\nOn an open pull request:\n\n```md\n@sepo-agent /review\n```\n\nLast checked: [GitHub Actions run](https://github.com/bnewm0609/learning-tools-sepo/actions/runs/26347287681)\n",
       "createdAt": "2026-05-24T00:14:32Z",
       "includesCreatedEdit": true,
       "isMinimized": false,
       "minimizedReason": "",
       "reactionGroups": [],
       "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1#issuecomment-4526890134",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDdNylg",
+      "author": {
+        "login": "bnewm0609"
+      },
+      "authorAssociation": "OWNER",
+      "body": "@sepo-agent /answer Is Sepo configured correctly in this repository?",
+      "createdAt": "2026-05-24T00:32:11Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "EYES",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1#issuecomment-4526928534",
+      "viewerDidAuthor": false
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDdOArw",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "Based on my review, here's a configuration status summary:\n\n**Working correctly**\n\n- All required agent workflows are present in `.github/workflows/` (entrypoint, router, memory, rubrics, implement, review, etc.)\n- The `/answer` route triggered and ran successfully — proof the mention routing and auth are functional\n- Authentication is working via OIDC broker with `CLAUDE_CODE_OAUTH_TOKEN` as the model provider\n- Memory system is initialized: `PROJECT.md` was seeded during the bootstrap run earlier today\n- Default agent handle `@sepo-agent` is routing correctly (no `AGENT_HANDLE` variable needed since it matches the default)\n\n**Incomplete / worth noting**\n\n- **No repository variables configured** — the repo has zero `vars.*` set, so all behavior falls back to workflow defaults. This is fine for now, but you may want to set things like `AGENT_RUNS_ON` or `AGENT_ACCESS_POLICY` when you need customization.\n- **Rubrics branch not initialized** — per memory from today's bootstrap, the `agent/rubrics` branch hasn't been set up yet. To initialize it, comment `@sepo-agent /rubrics init` on an issue.\n- **No explicit `AGENT_PAT` or `AGENT_APP_ID`** — the agent is relying on the OIDC fallback / `GITHUB_TOKEN` for GitHub write operations. This works for most routes, but an App credential or PAT gives more durable permissions (e.g., cross-repo access, bypassing branch protections).\n\n**Short answer**: Yes, Sepo is configured correctly for basic use. The core workflows, auth, and memory are all operational. The main gap is that rubrics haven't been initialized yet, and you have no repo variables set (which is fine — defaults are reasonable).",
+      "createdAt": "2026-05-24T00:33:57Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1#issuecomment-4526932143",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDdORXw",
+      "author": {
+        "login": "bnewm0609"
+      },
+      "authorAssociation": "OWNER",
+      "body": "@sepo-agent /implement Create a small README update that verifies the agent can open a PR.",
+      "createdAt": "2026-05-24T00:35:57Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        },
+        {
+          "content": "EYES",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1#issuecomment-4526936415",
+      "viewerDidAuthor": false
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDdOiyg",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "**Sepo implementation finished**\n\n- Branch: `agent/implement-issue-1/claude-26347614041`\n- Pull request: https://github.com/bnewm0609/learning-tools-sepo/pull/2\n\nAdded an 'Agent Status' section to README.md just before 'Quick Start', listing the confirmed auth method (OIDC broker / CLAUDE_CODE_OAUTH_TOKEN), that the agent/memory branch is initialized, and that @sepo-agent mention routing is active. This is a minimal, factual update that documents the working setup verified on 2026-05-24 and confirms the agent can open a PR end-to-end.",
+      "createdAt": "2026-05-24T00:38:08Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1#issuecomment-4526940874",
       "viewerDidAuthor": true
     }
   ],
@@ -27,6 +107,6 @@
   "number": 1,
   "state": "OPEN",
   "title": "Sepo setup check",
-  "updatedAt": "2026-05-24T00:19:11Z",
+  "updatedAt": "2026-05-24T00:38:08Z",
   "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/1"
 }
