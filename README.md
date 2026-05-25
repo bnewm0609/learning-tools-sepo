@@ -6,6 +6,47 @@ Sepo turns a repository into a **self-evolving repository**: a codebase that can
 
 ![Sepo overview](.agent/docs/assets/sepo-overview.png)
 
+## Learning Tools
+
+A lightweight set of scripts for remembering and internalizing information from various sources. Add question-answer pairs to `items.md`, then use the scripts below to study them.
+
+### Quick start
+
+```bash
+# Add your Q&A pairs to items.md, then:
+
+# Parse items into structured JSON
+python3 parse_items.py
+python3 parse_items.py --topic architectures   # filter by topic
+python3 parse_items.py --list-topics           # see all topics
+
+# Visualize items grouped by topic
+python3 quiz.py --list
+
+# Run an interactive quiz (press Enter to reveal, y/n to self-grade)
+python3 quiz.py
+python3 quiz.py --topic microbiome             # quiz a single topic
+
+# Export to Anki (File > Import in Anki, Tab separator)
+python3 export_anki.py -o my_deck.txt
+```
+
+### `items.md` format
+
+```
+Q: Your question here
+A: The answer (indent continuation lines with two spaces)
+Topic: topic-label
+Ref: Source title or URL
+Date: YYYY-MM-DD
+
+---
+
+Q: Next question...
+```
+
+---
+
 ## Agent Status
 
 This repository has Sepo configured and operational as of 2026-05-24:
