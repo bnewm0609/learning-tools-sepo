@@ -1,0 +1,4 @@
+# Memory
+
+## Durable
+- items.md format: each item starts with '- Q:' / '- A:', plus optional 'topic:', 'ref:', 'date:' sub-fields; parse_items.py is authoritative parser
