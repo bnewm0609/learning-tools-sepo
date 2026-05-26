@@ -1,0 +1,59 @@
+{
+  "author": {
+    "is_bot": true,
+    "login": "app/sepo-agent-app"
+  },
+  "baseRefName": "main",
+  "body": "## Summary\n\n- Adds `items.md`: plain-text Q/A input file with support for topic, ref, date, and multi-line fields; pre-populated with the three sample items from the issue\n- Adds `parse_items.py`: parses `items.md` into structured JSON; supports `--topic` filter and `--list-topics`\n- Adds `quiz.py`: interactive self-grading quiz (`y/n` scoring) and `--list` view grouped by topic; imports from `parse_items`\n- Adds `export_anki.py`: exports items to a tab-separated TSV for direct Anki import (Front | Back | Tags)\n- Updates README with a **Learning Tools** section covering usage and the `items.md` format\n\n## Test plan\n\n- [ ] `python3 parse_items.py` returns all three items as JSON\n- [ ] `python3 parse_items.py --list-topics` prints `architectures` and `microbiome`\n- [ ] `python3 parse_items.py --topic architectures` returns only the two architecture items\n- [ ] `python3 quiz.py --list` shows items grouped by topic\n- [ ] `python3 export_anki.py` outputs three tab-separated lines with correct fields\n- [ ] Add a new item to `items.md` and confirm all scripts pick it up\n\nCloses #3\n",
+  "closedAt": null,
+  "comments": [],
+  "createdAt": "2026-05-25T22:33:05Z",
+  "files": [
+    {
+      "path": "README.md",
+      "additions": 41,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "__pycache__/parse_items.cpython-312.pyc",
+      "additions": 0,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "export_anki.py",
+      "additions": 43,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "items.md",
+      "additions": 30,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "parse_items.py",
+      "additions": 57,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "quiz.py",
+      "additions": 66,
+      "deletions": 0,
+      "changeType": "ADDED"
+    }
+  ],
+  "headRefName": "agent/implement-issue-3/claude-26422290209",
+  "labels": [],
+  "mergedAt": null,
+  "number": 4,
+  "reviewDecision": "",
+  "reviews": [],
+  "state": "OPEN",
+  "title": "Add learning tools: items.md, parser, quiz, and Anki export",
+  "updatedAt": "2026-05-25T22:33:05Z",
+  "url": "https://github.com/bnewm0609/learning-tools-sepo/pull/4"
+}

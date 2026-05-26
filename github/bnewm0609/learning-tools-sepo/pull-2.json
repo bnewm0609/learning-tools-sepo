@@ -5,7 +5,7 @@
   },
   "baseRefName": "main",
   "body": "Adds a brief **Agent Status** section to `README.md` documenting the confirmed working configuration for this repository:\n\n- Auth method (OIDC broker / `CLAUDE_CODE_OAUTH_TOKEN`)\n- Memory branch initialized\n- `@sepo-agent` mention routing active\n\nThis serves as both a record of the verified setup and a proof-of-concept that the agent can successfully open a pull request.\n\nCloses #1\n",
-  "closedAt": null,
+  "closedAt": "2026-05-25T22:01:01Z",
   "comments": [],
   "createdAt": "2026-05-24T00:38:07Z",
   "files": [
@@ -18,12 +18,12 @@
   ],
   "headRefName": "agent/implement-issue-1/claude-26347614041",
   "labels": [],
-  "mergedAt": null,
+  "mergedAt": "2026-05-25T22:01:01Z",
   "number": 2,
   "reviewDecision": "",
   "reviews": [],
-  "state": "OPEN",
+  "state": "MERGED",
   "title": "docs: add Agent Status section to README",
-  "updatedAt": "2026-05-24T00:38:07Z",
+  "updatedAt": "2026-05-25T22:01:12Z",
   "url": "https://github.com/bnewm0609/learning-tools-sepo/pull/2"
 }

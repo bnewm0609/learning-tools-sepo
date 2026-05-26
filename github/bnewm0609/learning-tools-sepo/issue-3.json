@@ -1,0 +1,106 @@
+{
+  "author": {
+    "id": "MDQ6VXNlcjEwODExMTUw",
+    "is_bot": false,
+    "login": "bnewm0609",
+    "name": "Ben Newman"
+  },
+  "body": "### Goal\n\nThe goal of this repository is to build a light-weight set of tools for helping a user remember and internalize information that they have read from various sources. The user will come up with the test items in the form of question-answer pairs, and these will be processed, stored, and visualized. The user will run these tools locally on their laptop.\n\n### Why\n\nThe user wants to build a personalized set of tools to aid with learning information from various sources. This is the first step to creating this user experience.\n\n### Success criteria\n\n- [ ] Have a text file where the user dumps information they want to learn/internalize in plain text. The information can be in the form of question-answer pairs or term-definition pairs, and will usually include metadata such as the date it was added, the source/reference the information comes from, a topic label, and/or an explanation for why they want to learn the info.\n- [ ] Have a script that parses this file into a structured, queryable representation\n- [ ] Have a script that allows for visualizing these items---grouping them by topic, testing the user on the questions/terms\n- [ ] Integrate the question/answer or term/definition pairs into ANKI for spaced repetition practicing\n\n### Current strategy\n\nWrite a number of scripts to achieve the success criteria above. The tools will be run locally, by the user, on their laptop.\n\n### Subgoals or child tasks\n\n_No response_\n\n### Related work\n\n_No response_\n\n### Suggested first Sepo action\n\nWrite a sample input text file with the following information:\n\n- Q: What are per layer embeddings (PLE)? How do they fit into the model architecture?\n\t- A:  a model learns a separate, distinct embedding vector for each layer of the network, which is then injected into that layer's computation. At each layer _ℓ_, a learned embedding $e_ℓ ∈ ℝ^d$ is added to the hidden states before or after the attention/MLP operations. one common pattern: $h_ℓ = LayerNorm(h_{ℓ-1} + e_ℓ)$  \n\t- Ref: [[2601.10639](https://arxiv.org/pdf/2601.10639)](https://arxiv.org/pdf/2601.10639), [Gemma 3n model overview  \\|  Google AI for Developers](https://ai.google.dev/gemma/docs/gemma-3n\n\t- topic: architectures\n- Q: What is deepseek engram?\n\t- A: *They learn a lookup table of embedding keyed by hashes of multiple tokens.*\n\t- Ref: [[DeepSeek Gave LLMs a Real Memory (It's Not RAG) - YouTube](https://www.youtube.com/watch?v=87Q8nf1XHKA)](https://www.youtube.com/watch?v=87Q8nf1XHKA)\n\t- topic: architectures\n- Q: Is gut microbiome more diverse in patients with IBD or less diverse?\n\t- A: Less diverse\n\t- Ref: [The Inflammatory Bowel Disease Multi'omics Database \\| Mezzanine](https://ibdmdb.org/)\n\t- Topic: microbiome",
+  "closedAt": null,
+  "comments": [
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDndizA",
+      "author": {
+        "login": "bnewm0609"
+      },
+      "authorAssociation": "OWNER",
+      "body": "@sepo-agent /implement Can you implement this?",
+      "createdAt": "2026-05-25T22:29:13Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "THUMBS_UP",
+          "users": {
+            "totalCount": 1
+          }
+        },
+        {
+          "content": "EYES",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/3#issuecomment-4537672396",
+      "viewerDidAuthor": false
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDnewJA",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "**Sepo implementation finished**\n\n- Branch: `agent/implement-issue-3/claude-26422290209`\n- Pull request: https://github.com/bnewm0609/learning-tools-sepo/pull/4\n\nCreated four files to satisfy all success criteria in issue #3: `items.md` (the human-readable Q/A input file pre-populated with the three sample items from the issue), `parse_items.py` (parses items.md into structured JSON with `--topic` filter and `--list-topics` options), `quiz.py` (groups items by topic with `--list`, or runs an interactive self-grading quiz), and `export_anki.py` (exports items as tab-separated TSV for Anki import). Verified all scripts against the sample data: parser produces correct JSON, topic filtering works, quiz list view groups correctly, and Anki TSV output is well-formed. README updated with usage instructions and the items.md format.",
+      "createdAt": "2026-05-25T22:33:06Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/3#issuecomment-4537692196",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDoF3kA",
+      "author": {
+        "login": "bnewm0609"
+      },
+      "authorAssociation": "OWNER",
+      "body": "@sepo-agent /answer what do you think of the original plan?",
+      "createdAt": "2026-05-26T00:16:53Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [
+        {
+          "content": "EYES",
+          "users": {
+            "totalCount": 1
+          }
+        }
+      ],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/3#issuecomment-4538333072",
+      "viewerDidAuthor": false
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABDoGtGw",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "The plan is solid for a v1 — here's my take:\n\n**What works well**\n\n- **Plain text input** is the right call. It's portable, editable in any editor, and keeps the capture step frictionless. Freeform markdown with structured fields is a good balance.\n- **Anki integration** is smart rather than reinventing the wheel — Anki's SM-2 algorithm is battle-tested, and exporting to TSV means you get real spaced repetition without building it from scratch.\n- **Local-first** fits the use case perfectly. No auth, no network dependency, full data ownership.\n- **The four-script decomposition** (input → parse → quiz → export) keeps each piece focused and composable.\n\n**Areas to watch as it grows**\n\n1. **Format fragility**: The `items.md` format works well now, but as the file grows, inconsistent spacing or field casing (e.g., `Topic:` vs `topic:`) can silently break parsing. A strict format spec (maybe a short header comment in `items.md`) or a `--validate` mode in `parse_items.py` would help.\n\n2. **No progress tracking in-app**: The plan delegates all SRS to Anki, which is fine, but it means the local quiz tool can't track what you've gotten right/wrong across sessions. If you ever want \"show me items I've struggled with recently\" without opening Anki, you'd need a lightweight session log.\n\n3. **Topic taxonomy drift**: Freeform topic strings will naturally diverge over time (`architectures` vs `architecture` vs `ML architectures`). Worth considering a canonical topic list or at least `--list-topics` as a regular habit.\n\n**Overall verdict**: The plan is well-scoped for a first version. It avoids over-engineering and gets to a usable tool quickly. The main design tradeoff — using Anki as the SRS backend rather than building one — is the right call for now, but it means the local tools are primarily for capture and browsing, not for tracking learning progress. That's a reasonable constraint to be explicit about as the scope evolves.",
+      "createdAt": "2026-05-26T00:18:34Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/3#issuecomment-4538346779",
+      "viewerDidAuthor": true
+    }
+  ],
+  "createdAt": "2026-05-25T22:26:24Z",
+  "labels": [
+    {
+      "id": "LA_kwDOSmGbcc8AAAACkc4G-g",
+      "name": "agent-goal",
+      "description": "Marks an issue as a repository-level goal for Sepo planning",
+      "color": "5319e7"
+    }
+  ],
+  "number": 3,
+  "state": "OPEN",
+  "title": "Goal: Create initial set of learning tools",
+  "updatedAt": "2026-05-26T00:18:34Z",
+  "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/3"
+}
