@@ -1,8 +1,20 @@
 # Learning Items
 #
-# Format: one item per block, separated by ---
-# Supported fields: Q, A, Topic, Ref, Date, Note
-# Multi-line values: indent continuation lines with two spaces
+# Format spec:
+#   Items are separated by lines containing only "---".
+#   Field names are case-insensitive: Q:, q:, TOPIC:, Topic: are all accepted.
+#
+# Required fields:
+#   Q:     Question or prompt
+#   A:     Answer or explanation
+#
+# Optional fields:
+#   Topic: Category for grouping/filtering (default: uncategorized)
+#   Ref:   Source reference or URL
+#   Date:  Date added (YYYY-MM-DD)
+#   Note:  Extra context or memory hints
+#
+# Multi-line values: indent continuation lines with two or more spaces.
 
 Q: What are per layer embeddings (PLE)? How do they fit into the model architecture?
 A: A model learns a separate, distinct embedding vector for each layer of the network,
