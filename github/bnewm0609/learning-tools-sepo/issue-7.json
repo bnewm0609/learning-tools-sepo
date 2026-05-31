@@ -1,0 +1,62 @@
+{
+  "author": {
+    "is_bot": true,
+    "login": "app/sepo-agent-app"
+  },
+  "body": "Parent issue: #3\n\nStage: progress-tracking\n\n## Task\n\nParent issue: #3\n\nStage: progress-tracking\n\n## Task\n\nAdd lightweight in-app progress tracking to quiz.py so users can review their performance across sessions without opening Anki.\n\nThe base implementation lives in PR #4 (branch: agent/implement-issue-3/claude-26422290209). Format-fragility improvements are in PR #6 (branch: agent/implement-issue-5/claude-26699386484), which stacks on #4 — stack this work on PR #6's branch.\n\nChanges to make:\n1. Store quiz session results in a local JSON file (e.g., `.quiz_history.json` in the same directory as items.md). For each item attempted, record: the item's question text (or a stable hash/ID), the date, and whether the user marked it correct or incorrect.\n2. Add a `--history` flag to quiz.py that reads the session log and prints a summary: total attempts per item, correct rate, and a \"recently struggled\" list (items with <60% correct rate in the last 10 attempts or last 30 days, whichever is more recent).\n3. When running in quiz mode (not --list or --history), append the session's results to the history file after the quiz ends.\n4. Keep it simple: plain JSON, no external dependencies, append-only writes during the quiz.\n\nCreate a single focused PR for these changes only. Do not touch parse_items.py, items.md format, or export_anki.py.\n\n## Base\n\n- base_pr: #6\n\n## Base\n\n- base_pr: #6\n\n<!-- sepo-sub-orchestrator parent:3 stage:progress-tracking state:failed parent_round:3 -->",
+  "closedAt": null,
+  "comments": [
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU8VQg",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "Sepo is dispatching follow-up automation.\n\n| Source | Next | Target | Round | Status |\n| --- | --- | --- | --- | --- |\n| orchestrate | delegate_issue | Issue #7 | 3 / 12 | Dispatched |\n\nReason: agent planner selected child issue delegation: Child issue #5 (format-fragility) finished with SHIP verdict (PR #6). The user's original request asked for two PRs: format fragility and in-app progress tracking. Delegating the second child issue for progress tracking, stacking on PR #6 which itself stacks on PR #4.\n\n<!-- sepo-agent-handoff state:dispatched created:1780190573692 base64:aGFuZG9mZjpibmV3bTA2MDkvbGVhcm5pbmctdG9vbHMtc2VwbzoyNjY5OTc2NDU3NTpvcmNoZXN0cmF0ZTozOmRlbGVnYXRlX2lzc3VlOjc6Mw -->",
+      "createdAt": "2026-05-31T01:22:54Z",
+      "includesCreatedEdit": true,
+      "isMinimized": true,
+      "minimizedReason": "outdated",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/7#issuecomment-4585362754",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU8XTg",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "Sepo is dispatching follow-up automation.\n\n| Source | Next | Target | Round | Status |\n| --- | --- | --- | --- | --- |\n| orchestrate | implement | Issue #7 | 2 / 12 | Dispatched |\n\nReason: manual orchestrate start on issue; dispatching implement\n\n<!-- sepo-agent-handoff state:dispatched created:1780190590972 base64:aGFuZG9mZjpibmV3bTA2MDkvbGVhcm5pbmctdG9vbHMtc2VwbzoyNjY5OTc2NDU3NTpvcmNoZXN0cmF0ZTo3OmltcGxlbWVudDo3OjI -->",
+      "createdAt": "2026-05-31T01:23:11Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/7#issuecomment-4585363278",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU8qIw",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "**Sepo implementation finished**\n\n- Branch: `agent/implement-issue-7/claude-26699890008`\n\nAdded in-app progress tracking to quiz.py. Each quiz session now appends per-item results (question text, date, correct/incorrect) to a `.quiz_history.json` file alongside `items.md`. A new `--history` flag reads that file and prints a per-item table of total attempts, correct count, and correct rate, followed by a 'recently struggled' list of items with <60% correct rate in the most recent window (last 10 attempts or last 30 days, whichever starts later). Verified syntax, `--history` with no file, `--history` with seeded data showing the struggled list, and `--list` regression. No external dependencies added.",
+      "createdAt": "2026-05-31T01:26:07Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/7#issuecomment-4585368099",
+      "viewerDidAuthor": true
+    }
+  ],
+  "createdAt": "2026-05-31T01:22:50Z",
+  "labels": [],
+  "number": 7,
+  "state": "OPEN",
+  "title": "Sub-orchestrator: progress-tracking",
+  "updatedAt": "2026-05-31T01:26:31Z",
+  "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/7"
+}

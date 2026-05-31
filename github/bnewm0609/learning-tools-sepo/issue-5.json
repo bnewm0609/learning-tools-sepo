@@ -1,0 +1,62 @@
+{
+  "author": {
+    "is_bot": true,
+    "login": "app/sepo-agent-app"
+  },
+  "body": "Parent issue: #3\n\nStage: format-fragility\n\n## Task\n\nAddress format fragility in items.md parsing. The base implementation lives in PR #4 (branch: agent/implement-issue-3/claude-26422290209), which is not yet merged — stack this work on that branch.\n\nChanges to make:\n1. Make parse_items.py case-insensitive for field names — accept 'topic:', 'Topic:', 'TOPIC:', 'ref:', 'Ref:', etc. uniformly.\n2. Add a --validate flag to parse_items.py that checks items.md for common format errors: inconsistent or unknown field names, items missing required Q: or A: fields, and other structural problems. Print errors with approximate line numbers and exit non-zero when issues are found.\n3. Add a concise format spec comment block at the top of items.md that documents the expected format (required fields, optional fields, field name casing rules).\n\nCreate a single focused PR for these changes only. Do not add progress tracking or any other features.\n\n## Base\n\n- base_pr: #4\n\n<!-- sepo-sub-orchestrator parent:3 stage:format-fragility state:done parent_round:2 -->",
+  "closedAt": null,
+  "comments": [
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU5JFw",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "Sepo is dispatching follow-up automation.\n\n| Source | Next | Target | Round | Status |\n| --- | --- | --- | --- | --- |\n| orchestrate | delegate_issue | Issue #5 | 2 / 12 | Dispatched |\n\nReason: agent planner selected child issue delegation: User wants two separate PRs for format fragility and in-app progress tracking. Delegating to format fragility child first; stacks on open PR #4. Progress tracking child will be delegated after.\n\n<!-- sepo-agent-handoff state:dispatched created:1780188879352 base64:aGFuZG9mZjpibmV3bTA2MDkvbGVhcm5pbmctdG9vbHMtc2VwbzoyNjY5OTMzMjUwNjpvcmNoZXN0cmF0ZTozOmRlbGVnYXRlX2lzc3VlOjU6Mg -->",
+      "createdAt": "2026-05-31T00:54:39Z",
+      "includesCreatedEdit": true,
+      "isMinimized": true,
+      "minimizedReason": "outdated",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/5#issuecomment-4585310487",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU5LBw",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "Sepo is dispatching follow-up automation.\n\n| Source | Next | Target | Round | Status |\n| --- | --- | --- | --- | --- |\n| orchestrate | implement | Issue #5 | 2 / 12 | Dispatched |\n\nReason: manual orchestrate start on issue; dispatching implement\n\n<!-- sepo-agent-handoff state:dispatched created:1780188895965 base64:aGFuZG9mZjpibmV3bTA2MDkvbGVhcm5pbmctdG9vbHMtc2VwbzoyNjY5OTMzMjUwNjpvcmNoZXN0cmF0ZTo1OmltcGxlbWVudDo1OjI -->",
+      "createdAt": "2026-05-31T00:54:56Z",
+      "includesCreatedEdit": true,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/5#issuecomment-4585310983",
+      "viewerDidAuthor": true
+    },
+    {
+      "id": "IC_kwDOSmGbcc8AAAABEU5mmA",
+      "author": {
+        "login": "sepo-agent-app"
+      },
+      "authorAssociation": "NONE",
+      "body": "**Sepo implementation finished**\n\n- Branch: `agent/implement-issue-5/claude-26699386484`\n- Pull request: https://github.com/bnewm0609/learning-tools-sepo/pull/6\n\nAdded format-fragility improvements to parse_items.py and items.md. (1) Case-insensitivity was already implemented via .lower() normalization — confirmed it works for Q:, q:, TOPIC:, etc. (2) Added a --validate flag to parse_items.py that checks each item block for unknown field names and missing required Q:/A: fields, reporting approximate line numbers and exiting non-zero on errors. (3) Expanded the format spec comment at the top of items.md to explicitly document required fields (Q, A), optional fields (Topic, Ref, Date, Note), and the case-insensitivity rule. Smoke-tested: valid items.md passes with 'OK', bad files produce targeted errors on stderr and exit 1.",
+      "createdAt": "2026-05-31T00:58:56Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/5#issuecomment-4585318040",
+      "viewerDidAuthor": true
+    }
+  ],
+  "createdAt": "2026-05-31T00:54:37Z",
+  "labels": [],
+  "number": 5,
+  "state": "OPEN",
+  "title": "Sub-orchestrator: format-fragility",
+  "updatedAt": "2026-05-31T01:21:21Z",
+  "url": "https://github.com/bnewm0609/learning-tools-sepo/issues/5"
+}
