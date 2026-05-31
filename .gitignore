@@ -3,3 +3,5 @@ dist/
 .agent/node_modules/
 .agent/dist/
 .claude/worktrees/
+__pycache__/
+*.pyc
