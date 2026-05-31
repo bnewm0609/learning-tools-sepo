@@ -50,8 +50,12 @@ def validate_items(path: str = "items.md") -> list[str]:
             if m:
                 key = m.group(1).lower()
                 fields[key] = fields.get(key, 0) + 1
+                if fields[key] > 1:
+                    errors.append(f"line ~{start_line}: duplicate field '{m.group(1).upper()}:'")
                 if key not in KNOWN_FIELDS:
                     errors.append(f"line ~{start_line}: unknown field '{m.group(1)}:'")
+                if key in REQUIRED_FIELDS and not m.group(2).strip():
+                    errors.append(f"line ~{start_line}: required field '{m.group(1).upper()}:' has no value")
         if fields:
             for field in REQUIRED_FIELDS:
                 if field not in fields:
@@ -65,7 +69,7 @@ def main() -> None:
     parser.add_argument("file", nargs="?", default="items.md", help="Input file (default: items.md)")
     parser.add_argument("--topic", help="Filter by topic (case-insensitive)")
     parser.add_argument("--list-topics", action="store_true", help="Print all distinct topics")
-    parser.add_argument("--validate", action="store_true", help="Check file for format errors and exit")
+    parser.add_argument("--validate", action="store_true", help="Validate format; exits 0 on success, 1 on errors")
     args = parser.parse_args()
 
     if args.validate:
