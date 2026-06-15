@@ -12,6 +12,7 @@ import {
   SCHEMA_VERSION,
   validateEnvelope,
 } from "../envelope.js";
+import { buildAnswerReviewContext } from "../answer-review-context.js";
 
 const repoRoot = path.resolve(__dirname, "../../..");
 
@@ -89,6 +90,8 @@ test("shared base prompt exists and contains the metadata contract", () => {
   assert.match(base, /\$\{REQUEST_TEXT\}/);
   assert.match(base, /gh issue view/);
   assert.match(base, /gh pr view/);
+  assert.match(base, /likely transient server, rate-limit, timeout, or connection error/);
+  assert.match(base, /Do not repeatedly retry deterministic failures/);
 });
 
 test("route prompts do not duplicate the base metadata header", () => {
@@ -131,8 +134,115 @@ test("issue enhancement prompt uses self-serve context gathering", () => {
 test("answer prompt returns content for workflow posting instead of commenting directly", () => {
   const answerPrompt = readRepoFile(".github/prompts/agent-answer.md");
 
+  assert.match(answerPrompt, /\$\{ANSWER_REVIEW_CONTEXT\}/);
+  assert.doesNotMatch(answerPrompt, /\$\{REQUEST_SOURCE_KIND\}/);
+  assert.doesNotMatch(answerPrompt, /\$\{REQUEST_COMMENT_ID\}/);
+  assert.doesNotMatch(answerPrompt, /\$\{REQUEST_COMMENT_URL\}/);
+  assert.doesNotMatch(answerPrompt, /Trigger metadata:/);
+  assert.match(answerPrompt, /Except for targeted inline replies allowed by a review-triggered exception above/);
   assert.match(answerPrompt, /do not post comments directly via `gh`/i);
   assert.match(answerPrompt, /workflow will post it on the original surface/i);
+});
+
+test("answer review context renders only for pull request review triggers", () => {
+  assert.equal(
+    buildAnswerReviewContext({
+      repoSlug: "self-evolving/repo",
+      targetNumber: "1",
+      sourceKind: "issue_comment",
+      commentId: "123",
+      commentUrl: "https://github.com/self-evolving/repo/issues/1#issuecomment-123",
+    }),
+    "",
+  );
+
+  const reviewContext = buildAnswerReviewContext({
+    repoSlug: "self-evolving/repo",
+    targetNumber: "1",
+    sourceKind: "pull_request_review",
+    commentId: "456",
+    commentUrl: "https://github.com/self-evolving/repo/pull/1#pullrequestreview-456",
+  });
+
+  assert.match(reviewContext, /Review-triggered answer context/);
+  assert.match(reviewContext, /Request source kind: `pull_request_review`/);
+  assert.match(reviewContext, /Request review ID: `456`/);
+  assert.match(reviewContext, /related inline comments/);
+  assert.match(reviewContext, /non-empty final answer body/);
+  assert.match(reviewContext, /duplicate an existing Sepo-authored inline reply/);
+  assert.match(reviewContext, /gh api repos\/self-evolving\/repo\/pulls\/1\/reviews\/456/);
+  assert.match(reviewContext, /gh api --method POST repos\/self-evolving\/repo\/pulls\/1\/comments -f body='<reply>' -F in_reply_to=<comment_id>/);
+});
+
+test("answer route passes trigger metadata into prompt variables", () => {
+  const routerWorkflow = parseYaml(readRepoFile(".github/workflows/agent-router.yml")) as unknown;
+  const runAgentTaskAction = parseYaml(readRepoFile(".github/actions/run-agent-task/action.yml")) as unknown;
+  const runSource = readRepoFile(".agent/src/run.ts");
+  const supplementalPromptVarNames = readSupplementalPromptVarNames(runSource);
+
+  assert.ok(isRecord(routerWorkflow), "agent-router workflow should parse");
+  assert.ok(isRecord(routerWorkflow.jobs), "agent-router workflow should define jobs");
+  const answerJob = routerWorkflow.jobs.answer;
+  assert.ok(isRecord(answerJob), "agent-router workflow should define answer job");
+  assert.ok(Array.isArray(answerJob.steps), "answer job should define steps");
+  const runAnswerStep = answerJob.steps.find(
+    (step): step is Record<string, unknown> =>
+      isRecord(step) && step.name === "Run answer agent",
+  );
+  assert.ok(runAnswerStep, "answer job should run the answer agent");
+  assert.ok(isRecord(runAnswerStep.with), "answer agent step should define inputs");
+  assert.equal(runAnswerStep.with.request_source_kind, "${{ needs.portal.outputs.source_kind }}");
+  assert.equal(runAnswerStep.with.request_comment_id, "${{ needs.portal.outputs.source_comment_id }}");
+  assert.equal(runAnswerStep.with.request_comment_url, "${{ needs.portal.outputs.source_comment_url }}");
+
+  assert.ok(isRecord(runAgentTaskAction), "run-agent-task action should parse");
+  assert.ok(isRecord(runAgentTaskAction.inputs), "run-agent-task action should define inputs");
+  assert.ok(isRecord(runAgentTaskAction.inputs.request_source_kind));
+  assert.ok(isRecord(runAgentTaskAction.inputs.request_comment_id));
+  assert.ok(isRecord(runAgentTaskAction.inputs.request_comment_url));
+  assert.ok(isRecord(runAgentTaskAction.runs), "run-agent-task action should define runs");
+  assert.ok(Array.isArray(runAgentTaskAction.runs.steps), "run-agent-task action should define steps");
+  const runStep = runAgentTaskAction.runs.steps.find(
+    (step): step is Record<string, unknown> => isRecord(step) && step.id === "run",
+  );
+  assert.ok(runStep, "run-agent-task action should include the Run agent task step");
+  assert.ok(isRecord(runStep.env), "run-agent-task run step should define env");
+  assert.equal(runStep.env.REQUEST_SOURCE_KIND, "${{ inputs.request_source_kind || inputs.source_kind }}");
+  assert.equal(runStep.env.REQUEST_COMMENT_ID, "${{ inputs.request_comment_id }}");
+  assert.equal(runStep.env.REQUEST_COMMENT_URL, "${{ inputs.request_comment_url }}");
+
+  assert.ok(supplementalPromptVarNames.has("REQUEST_SOURCE_KIND"));
+  assert.ok(supplementalPromptVarNames.has("REQUEST_COMMENT_ID"));
+  assert.ok(supplementalPromptVarNames.has("REQUEST_COMMENT_URL"));
+  assert.match(runSource, /buildAnswerReviewContext/);
+  assert.match(runSource, /envelope\.route === "answer"/);
+  assert.match(runSource, /ANSWER_REVIEW_CONTEXT/);
+});
+
+test("answer action docs mention review-triggered inline replies", () => {
+  const docs = readRepoFile(".agent/docs/usage/agent-actions.md");
+
+  assert.match(docs, /pull_request_review/);
+  assert.match(docs, /targeted inline replies/);
+  assert.match(docs, /non-empty answer body/);
+});
+
+test("fix-pr route passes trigger metadata through run-agent-task inputs", () => {
+  const fixPrWorkflow = parseYaml(readRepoFile(".github/workflows/agent-fix-pr.yml")) as unknown;
+
+  assert.ok(isRecord(fixPrWorkflow), "agent-fix-pr workflow should parse");
+  assert.ok(isRecord(fixPrWorkflow.jobs), "agent-fix-pr workflow should define jobs");
+  const fixPrJob = fixPrWorkflow.jobs["fix-pr"];
+  assert.ok(isRecord(fixPrJob), "agent-fix-pr workflow should define fix_pr job");
+  assert.ok(Array.isArray(fixPrJob.steps), "fix_pr job should define steps");
+  const runAgentStep = fixPrJob.steps.find(
+    (step): step is Record<string, unknown> => isRecord(step) && step.name === "Run agent",
+  );
+  assert.ok(runAgentStep, "fix-pr job should run the agent");
+  assert.ok(isRecord(runAgentStep.with), "fix-pr run-agent-task step should define inputs");
+  assert.equal(runAgentStep.with.request_comment_id, "${{ inputs.request_comment_id }}");
+  assert.equal(runAgentStep.with.request_comment_url, "${{ inputs.request_comment_url }}");
+  assert.equal(runAgentStep.with.request_source_kind, "${{ inputs.request_source_kind || 'workflow_dispatch' }}");
 });
 
 test("fix-pr prompt uses self-serve context, not local snapshots", () => {
@@ -297,11 +407,20 @@ test("single-agent workflows resolve provider before runtime setup", () => {
   assert.match(reviewWorkflow, /reasoning_effort:\s*\$\{\{\s*steps\.synthesis_provider\.outputs\.reasoning_effort \|\| \(steps\.synthesis_provider\.outputs\.provider == 'claude' && 'max' \|\| 'xhigh'\)\s*\}\}/);
   assert.match(reviewWorkflow, /openai_api_key:\s*\$\{\{\s*secrets\.OPENAI_API_KEY\s*\}\}/);
   assert.match(reviewWorkflow, /anthropic_api_key:\s*\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}/);
+  assert.match(configurationList, /AGENT_DISPLAY_MODEL[\s\S]*Defaults to `true`; set to `false` to hide the footer\./);
+  assert.match(reviewWorkflow, /name:\s*Resolve reviewer provider/);
+  assert.match(reviewWorkflow, /id:\s*reviewer_provider/);
+  assert.match(reviewWorkflow, /route:\s*review/);
+  assert.match(reviewWorkflow, /route_provider:\s*\$\{\{\s*matrix\.agent\s*\}\}/);
+  assert.match(reviewWorkflow, /install_codex:\s*\$\{\{\s*steps\.reviewer_provider\.outputs\.install_codex\s*\}\}/);
+  assert.match(reviewWorkflow, /install_claude:\s*\$\{\{\s*steps\.reviewer_provider\.outputs\.install_claude\s*\}\}/);
   const reviewerRunBlock = reviewWorkflow.match(
     /- name: Run \$\{\{ matrix\.agent \}\} review[\s\S]*?(?=\n      - name: Persist review artifacts)/,
   )?.[0] || "";
   assert.doesNotMatch(reviewerRunBlock, /model_policy:/);
-  assert.doesNotMatch(reviewerRunBlock, /model:\s*\$\{\{\s*steps\./);
+  assert.match(reviewerRunBlock, /agent:\s*\$\{\{\s*steps\.reviewer_provider\.outputs\.provider\s*\}\}/);
+  assert.match(reviewerRunBlock, /model:\s*\$\{\{\s*steps\.reviewer_provider\.outputs\.model\s*\}\}/);
+  assert.match(reviewerRunBlock, /reasoning_effort:\s*\$\{\{\s*steps\.reviewer_provider\.outputs\.reasoning_effort \|\| matrix\.reasoning_effort\s*\}\}/);
   assert.doesNotMatch(implementWorkflow, /vars\.AGENT_PROVIDER_IMPLEMENT/);
   assert.doesNotMatch(fixPrWorkflow, /vars\.AGENT_PROVIDER_FIX_PR/);
 
@@ -356,14 +475,12 @@ test("packaged Sepo workflows have a global AGENT_ENABLED job guard", () => {
   const supportedWorkflows = readRepoFile(".agent/docs/usage/supported-workflows.md");
   const agentActions = readRepoFile(".agent/docs/usage/agent-actions.md");
   const memoryDocs = readRepoFile(".agent/docs/architecture/memory.md");
-  const readme = readRepoFile("README.md");
   const docsIndex = readRepoFile(".agent/docs/index.md");
 
   assert.match(configurationList, /`AGENT_ENABLED`[\s\S]*Global Sepo pause switch/);
   assert.match(supportedWorkflows, /All packaged `agent-\*\.yml` workflow jobs honor `AGENT_ENABLED=false`/);
   assert.match(agentActions, /template includes the same `AGENT_ENABLED=false` job/);
   assert.match(memoryDocs, /pause all Sepo workflow entry points[\s\S]*`AGENT_ENABLED`/);
-  assert.match(readme, /AGENT_ENABLED=false/);
   assert.match(docsIndex, /AGENT_ENABLED=false/);
 });
 
@@ -372,6 +489,7 @@ test("scheduled workflows evaluate skip gates before provider-dependent jobs", (
   const memoryScanWorkflow = readRepoFile(".github/workflows/agent-memory-scan.yml");
   const memorySyncWorkflow = readRepoFile(".github/workflows/agent-memory-sync.yml");
   const updateWorkflow = readRepoFile(".github/workflows/agent-update.yml");
+  const updatePrompt = readRepoFile(".github/prompts/agent-update.md");
   const gateAction = readRepoFile(".github/actions/scheduled-activity-gate/action.yml");
 
   assert.match(gateAction, /\.agent\/scripts\/resolve-scheduled-activity-gate\.sh/);
@@ -415,11 +533,17 @@ test("scheduled workflows evaluate skip gates before provider-dependent jobs", (
   assert.match(updateWorkflow, /update that branch and PR in the update target path/);
   assert.match(updateWorkflow, /do not check out the existing PR branch in[\s\S]*the runtime checkout path/);
   assert.match(updateWorkflow, /Update Sepo from <installed version\/ref> to \$\{\{ steps\.update_source\.outputs\.source_ref \}\}\/\$\{\{ steps\.update_source\.outputs\.source_sha \}\}/);
-  assert.match(updateWorkflow, /Resolve task timeout[\s\S]*ROUTE: skill[\s\S]*resolve-task-timeout\.js/);
+  assert.match(updateWorkflow, /Resolve task timeout[\s\S]*ROUTE: update-agent[\s\S]*resolve-task-timeout\.js/);
   assert.match(
     updateWorkflow,
     /Run update agent\n\s+id: agent\n\s+timeout-minutes: \$\{\{ fromJson\(steps\.task_timeout\.outputs\.minutes \|\| '30'\) \}\}/,
   );
+  assert.match(updateWorkflow, /prompt:\s*agent-update/);
+  assert.match(updateWorkflow, /route:\s*update-agent/);
+  assert.match(updateWorkflow, /rubrics_mode_override:\s*disabled/);
+  assert.doesNotMatch(updateWorkflow, /skill:\s*update-agent/);
+  assert.match(updatePrompt, /first-class internal `update-agent` route/);
+  assert.match(updatePrompt, /must not depend on `\.skills\/update-agent\/SKILL\.md`/);
   assert.doesNotMatch(updateWorkflow, /if: steps\.gate\.outputs\.skip != 'true'/);
 
   assert.match(dailySummaryWorkflow, /pre_gate:\n[\s\S]*Resolve scheduled disabled gate/);
@@ -652,7 +776,7 @@ test("agent router bypasses dispatch triage for explicit mention slash routes", 
   );
   assert.match(
     runnerWorkflow,
-    /RESPONSE_FILE:\s*\$\{\{\s*steps\.triage\.outputs\.response_file \|\| steps\.implement_metadata\.outputs\.response_file\s*\}\}/,
+    /RESPONSE_FILE:\s*\$\{\{\s*steps\.followup_intent\.outputs\.response_file \|\| steps\.triage\.outputs\.response_file \|\| steps\.implement_metadata\.outputs\.response_file\s*\}\}/,
   );
   assert.match(runnerWorkflow, /REQUESTED_ROUTE:\s*\$\{\{\s*steps\.context\.outputs\.requested_route\s*\}\}/);
   assert.match(runnerWorkflow, /base_pr:\s*\$\{\{\s*steps\.dispatch\.outputs\.base_pr\s*\}\}/);
@@ -665,6 +789,61 @@ test("agent router bypasses dispatch triage for explicit mention slash routes", 
   assert.match(implementMetadataPrompt, /digits only, with no `#` prefix/);
   assert.doesNotMatch(extractContext, /requested_install_target_repo/);
   assert.doesNotMatch(runnerWorkflow, /requested_install_target_repo:/);
+});
+
+test("agent router preauthorizes implicit follow-up answer gates", () => {
+  const entrypointWorkflow = readRepoFile(".github/workflows/agent-entrypoint.yml");
+  const runnerWorkflow = readRepoFile(".github/workflows/agent-router.yml");
+
+  assert.match(
+    entrypointWorkflow,
+    /github\.event_name == 'issue_comment' &&[\s\S]*github\.event\.action == 'created' &&[\s\S]*contains\(github\.event\.issue\.labels\.\*\.name, 'agent'\)/,
+  );
+  assert.match(
+    entrypointWorkflow,
+    /github\.event_name == 'pull_request_review_comment' &&[\s\S]*github\.event\.action == 'created' &&[\s\S]*contains\(github\.event\.pull_request\.labels\.\*\.name, 'agent'\)/,
+  );
+  assert.match(
+    entrypointWorkflow,
+    /github\.event_name == 'pull_request_review' &&[\s\S]*github\.event\.action == 'submitted' &&[\s\S]*contains\(github\.event\.pull_request\.labels\.\*\.name, 'agent'\)/,
+  );
+
+  const answerProviderIndex = runnerWorkflow.indexOf("- name: Resolve answer provider");
+  const setupIndex = runnerWorkflow.indexOf("- name: Setup agent runtime");
+  assert.ok(answerProviderIndex > 0, "portal should resolve the answer provider before setup");
+  assert.ok(setupIndex > answerProviderIndex, "runtime setup should see answer provider install flags");
+  assert.match(
+    runnerWorkflow,
+    /install_codex:\s*\$\{\{\s*\(steps\.provider\.outputs\.install_codex == 'true' \|\| steps\.answer_provider\.outputs\.install_codex == 'true'\) && 'true' \|\| 'false'\s*\}\}/,
+  );
+  assert.match(
+    runnerWorkflow,
+    /install_claude:\s*\$\{\{\s*\(steps\.provider\.outputs\.install_claude == 'true' \|\| steps\.answer_provider\.outputs\.install_claude == 'true'\) && 'true' \|\| 'false'\s*\}\}/,
+  );
+
+  const authIndex = runnerWorkflow.indexOf("- name: Authorize implicit follow-up answer");
+  const followupProviderIndex = runnerWorkflow.indexOf("- name: Require follow-up intent provider");
+  const intentIndex = runnerWorkflow.indexOf("- name: Run follow-up intent gate");
+  const resolveRouteIndex = runnerWorkflow.indexOf("- name: Resolve route");
+  assert.ok(authIndex > setupIndex, "authorization should run after context extraction is available");
+  assert.ok(authIndex < followupProviderIndex, "authorization must happen before follow-up provider resolution");
+  assert.ok(followupProviderIndex < intentIndex, "provider must resolve before the intent gate");
+
+  const authBlock = runnerWorkflow.slice(authIndex, followupProviderIndex);
+  assert.match(authBlock, /REQUESTED_ROUTE:\s*answer/);
+  assert.match(authBlock, /node \.agent\/dist\/cli\/resolve-dispatch\.js/);
+  assert.match(
+    runnerWorkflow.slice(followupProviderIndex, intentIndex),
+    /steps\.followup_authorization\.outputs\.route == 'answer'/,
+  );
+  assert.match(
+    runnerWorkflow.slice(intentIndex, resolveRouteIndex),
+    /steps\.followup_authorization\.outputs\.route == 'answer'/,
+  );
+  assert.match(
+    runnerWorkflow.slice(resolveRouteIndex, runnerWorkflow.indexOf("- name: React with eyes", resolveRouteIndex)),
+    /steps\.context\.outputs\.implicit_followup != 'true'[\s\S]*steps\.followup_authorization\.outputs\.route == 'answer'/,
+  );
 });
 
 test("agent router supports label-triggered route and skill overrides", () => {
@@ -918,6 +1097,8 @@ test("shared run-agent-task action exists and requires explicit prompt/skill/lan
   assert.match(action, /skill_root:/);
   assert.match(action, /model:/);
   assert.match(action, /display_model:/);
+  const displayModelBlock = action.match(/display_model:[\s\S]*?(?=^  [a-z_]+:|^outputs:)/m)?.[0] || "";
+  assert.match(displayModelBlock, /default:\s*"true"/);
   assert.match(action, /anthropic_api_key:/);
   assert.match(action, /lane:/);
   assert.match(action, /session_policy:/);
@@ -928,7 +1109,7 @@ test("shared run-agent-task action exists and requires explicit prompt/skill/lan
   assert.match(action, /SKILL_NAME/);
   assert.match(action, /SKILL_ROOT/);
   assert.match(action, /MODEL_ID/);
-  assert.match(action, /DISPLAY_MODEL/);
+  assert.match(action, /DISPLAY_MODEL:\s*\$\{\{\s*inputs\.display_model \|\| 'true'\s*\}\}/);
   assert.match(action, /ANTHROPIC_API_KEY/);
   assert.match(action, /LANE/);
   assert.match(action, /SESSION_POLICY/);
@@ -937,7 +1118,7 @@ test("shared run-agent-task action exists and requires explicit prompt/skill/lan
 
 test("shared run-agent-task exposes an optional secondary GitHub token", () => {
   const action = readRepoFile(".github/actions/run-agent-task/action.yml");
-  const runSource = readRepoFile(".agent/src/run.ts");
+  const runtimeEnvSource = readRepoFile(".agent/src/runtime-env.ts");
   const basePrompt = readRepoFile(".github/prompts/_base.md");
   const parsedAction = parseYaml(action) as unknown;
 
@@ -961,10 +1142,10 @@ test("shared run-agent-task exposes an optional secondary GitHub token", () => {
   );
   assert.equal(runStep.env.INPUT_GITHUB_TOKEN, "${{ inputs.github_token }}");
 
-  assert.match(runSource, /INPUT_SECONDARY_GITHUB_TOKEN/);
+  assert.match(runtimeEnvSource, /INPUT_SECONDARY_GITHUB_TOKEN/);
   assert.doesNotMatch(
-    runSource,
-    /env\.GH_TOKEN\s*=\s*process\.env\.INPUT_SECONDARY_GITHUB_TOKEN/,
+    runtimeEnvSource,
+    /env\.GH_TOKEN\s*=\s*inputEnv\.INPUT_SECONDARY_GITHUB_TOKEN/,
   );
   assert.match(basePrompt, /INPUT_SECONDARY_GITHUB_TOKEN/);
   assert.match(basePrompt, /Do not print token values/);
@@ -975,13 +1156,17 @@ test("shared run-agent-task exposes an optional secondary GitHub token", () => {
 test("run-agent-task maps reasoning effort for Claude env and Codex thought level", () => {
   const action = readRepoFile(".github/actions/run-agent-task/action.yml");
   const runSource = readRepoFile(".agent/src/run.ts");
+  const runtimeEnvSource = readRepoFile(".agent/src/runtime-env.ts");
   const acpxSource = readRepoFile(".agent/src/acpx-adapter.ts");
 
   assert.match(action, /reasoning_effort:\n\s+description: "Model reasoning effort level"/);
   assert.match(action, /MODEL_REASONING_EFFORT:\s*\$\{\{\s*inputs\.reasoning_effort\s*\}\}/);
-  assert.match(runSource, /env\.MODEL_REASONING_EFFORT = process\.env\.MODEL_REASONING_EFFORT/);
-  assert.match(runSource, /env\.CLAUDE_CODE_EFFORT_LEVEL = process\.env\.MODEL_REASONING_EFFORT/);
+  assert.match(runtimeEnvSource, /env\.MODEL_REASONING_EFFORT = inputEnv\.MODEL_REASONING_EFFORT/);
+  assert.match(runtimeEnvSource, /env\.CLAUDE_CODE_EFFORT_LEVEL = inputEnv\.MODEL_REASONING_EFFORT/);
   assert.match(runSource, /thoughtLevel:\s*process\.env\.MODEL_REASONING_EFFORT/);
+  assert.match(runSource, /parseBooleanFlag\(process\.env\.DISPLAY_MODEL, true\)/);
+  assert.match(runSource, /CODEX_REASONING_MODEL_SUFFIX/);
+  assert.match(runSource, /displayReasoningEffort/);
   assert.match(acpxSource, /"thought_level", thoughtLevel/);
 });
 
@@ -1143,6 +1328,8 @@ test("shared auth action supports the built-in hosted OIDC broker mode", () => {
   assert.match(oidcScript, /oidc_request_url=\"\$\{ACTIONS_ID_TOKEN_REQUEST_URL\}&audience=\$\{OIDC_AUDIENCE\}\"/);
   assert.match(oidcScript, /for cmd in curl jq/);
   assert.match(oidcScript, /run_with_retries\(\)/);
+  assert.match(oidcScript, /run_exchange_with_retries\(\)/);
+  assert.match(oidcScript, /429\|500\|502\|503\|504/);
   assert.match(oidcScript, /jq -r '\.value \/\/ empty' 2>\/dev\/null \|\| true/);
   assert.match(oidcScript, /jq -r '\.token \/\/ \.app_token \/\/ empty' .*2>\/dev\/null \|\| true/);
   assert.match(oidcScript, /--max-time 30/);
@@ -1543,6 +1730,7 @@ test("orchestrator source handoff context is renderable in planner prompts", () 
 
 test("workflow docs cover hosted auth and self-hosting paths", () => {
   const setupGuide = readRepoFile(".agent/docs/setup/setup-guide.md");
+  const internalActions = readRepoFile(".agent/docs/usage/internal-actions.md");
   const selfHostedRunner = readRepoFile(
     ".agent/docs/setup/self-hosted-github-action-runner.md",
   );
@@ -1578,6 +1766,9 @@ test("workflow docs cover hosted auth and self-hosting paths", () => {
   );
   assert.match(setupGuide, /fallback workflow token `github\.token`/i);
   assert.doesNotMatch(setupGuide, /"oidc_token"/);
+  assert.match(internalActions, /hosted OIDC broker path retries/);
+  assert.match(internalActions, /`429`, `500`, `502`, `503`, or `504`/);
+  assert.match(internalActions, /generic broker `400` responses remain terminal/);
   assert.match(selfHostedRunner, /infrastructure you operate/);
   assert.match(selfHostedRunner, /`git`, `gh`, `jq`, `curl`, `bash`, and network/);
 });
@@ -1640,12 +1831,13 @@ test("validateEnvelope catches invalid route", () => {
   assert.ok(errors.some((error) => error.includes("Invalid route")));
 });
 
-test("validateEnvelope accepts dispatch, action, self-approval, and rubrics routes", () => {
+test("validateEnvelope accepts dispatch, action, self-approval, update, and rubrics routes", () => {
   for (const route of [
     "dispatch",
     "create-action",
     "agent-self-approve",
     "agent-self-merge",
+    "update-agent",
     "rubrics-review",
     "rubrics-initialization",
     "rubrics-update",

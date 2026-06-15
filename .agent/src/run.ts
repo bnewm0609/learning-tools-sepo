@@ -58,6 +58,8 @@ import {
   parseSessionBundleMode,
   shouldBackupSessionBundles,
 } from "./session-bundle.js";
+import { buildSharedEnv } from "./runtime-env.js";
+import { buildAnswerReviewContext } from "./answer-review-context.js";
 
 // --- Logging ---
 
@@ -129,6 +131,7 @@ const PROMPT_TEMPLATES: Record<string, string> = {
   answer: ".github/prompts/agent-answer.md",
   "create-action": ".github/prompts/agent-create-action.md",
   install: ".github/prompts/agent-install.md",
+  "update-agent": ".github/prompts/agent-update.md",
   dispatch: ".github/prompts/agent-dispatch.md",
   "rubrics-review": ".github/prompts/rubrics-review.md",
   "rubrics-initialization": ".github/prompts/rubrics-initialization.md",
@@ -277,33 +280,10 @@ function persistFailureOutputs(
   return { rawStdoutFile, rawStderrFile };
 }
 
-function buildSharedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (process.env.INPUT_GITHUB_TOKEN) {
-    env.GH_TOKEN = process.env.INPUT_GITHUB_TOKEN;
-    env.GITHUB_TOKEN = process.env.INPUT_GITHUB_TOKEN;
-  }
-  env.INPUT_SECONDARY_GITHUB_TOKEN = process.env.INPUT_SECONDARY_GITHUB_TOKEN || "";
-  if (process.env.INPUT_OPENAI_API_KEY) {
-    env.OPENAI_API_KEY = process.env.INPUT_OPENAI_API_KEY;
-  }
-  if (process.env.MODEL_REASONING_EFFORT) {
-    env.MODEL_REASONING_EFFORT = process.env.MODEL_REASONING_EFFORT;
-    // Claude Code reads effort from this env var directly, so both the
-    // flow path and the direct path pick it up without session setup.
-    env.CLAUDE_CODE_EFFORT_LEVEL = process.env.MODEL_REASONING_EFFORT;
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  }
-  return env;
-}
-
-function parseBooleanFlag(value: string | undefined): boolean {
-  return ["true", "1", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+function parseBooleanFlag(value: string | undefined, defaultValue = false): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return defaultValue;
+  return ["true", "1", "yes", "on"].includes(normalized);
 }
 
 function extractSessionModel(sessionLog: string): string {
@@ -321,17 +301,42 @@ function extractSessionModel(sessionLog: string): string {
   return "";
 }
 
-function buildModelDisplay(options: {
+const CODEX_REASONING_MODEL_SUFFIX = /(?:\/(?:low|medium|high|xhigh)|\[(?:low|medium|high|xhigh)\])$/u;
+
+function displayReasoningEffort(options: {
   agent: string;
   model: string;
   reasoningEffort: string;
 }): string {
+  const reasoningEffort = options.reasoningEffort.trim();
+  if (!reasoningEffort) return "";
+  if (
+    options.agent.trim().toLowerCase() === "codex" &&
+    CODEX_REASONING_MODEL_SUFFIX.test(options.model.trim())
+  ) {
+    return "";
+  }
+  return reasoningEffort;
+}
+
+function buildModelDisplay(options: {
+  agent: string;
+  model: string;
+  reasoningEffort: string;
+  runnerName: string;
+}): string {
+  const model = options.model.trim();
   const parts = [
     options.agent.trim(),
-    options.model.trim() || "default model",
-    options.reasoningEffort.trim(),
+    model || "default model",
+    displayReasoningEffort({
+      agent: options.agent,
+      model,
+      reasoningEffort: options.reasoningEffort,
+    }),
+    options.runnerName.trim(),
   ].filter(Boolean);
-  return parts.length > 0 ? `_Run: ${parts.map((part) => `\`${part}\``).join(" / ")}_` : "";
+  return parts.length > 0 ? parts.map((part) => `\`${part}\``).join(" | ") : "";
 }
 
 // --- Main ---
@@ -378,6 +383,18 @@ function main(): void {
   // variables without updating the runtime allowlist here.
   for (const name of SUPPLEMENTAL_PROMPT_VAR_NAMES) {
     if (process.env[name]) promptVars[name] = process.env[name]!;
+  }
+  if (envelope.route === "answer") {
+    const answerReviewContext = buildAnswerReviewContext({
+      repoSlug: promptVars.REPO_SLUG,
+      targetNumber: promptVars.TARGET_NUMBER,
+      sourceKind: promptVars.REQUEST_SOURCE_KIND || promptVars.SOURCE_KIND,
+      commentId: promptVars.REQUEST_COMMENT_ID || "",
+      commentUrl: promptVars.REQUEST_COMMENT_URL || "",
+    });
+    if (answerReviewContext) {
+      promptVars.ANSWER_REVIEW_CONTEXT = answerReviewContext;
+    }
   }
   if (promptVars.RUBRICS_CONTEXT_FILE && existsSync(promptVars.RUBRICS_CONTEXT_FILE)) {
     promptVars.RUBRICS_CONTEXT = readFileSync(promptVars.RUBRICS_CONTEXT_FILE, "utf8");
@@ -614,11 +631,12 @@ function runDirectPath(opts: {
 
   const reportedModel = extractSessionModel(result.sessionLog) || requestedModel;
   setOutput("model", reportedModel);
-  if (parseBooleanFlag(process.env.DISPLAY_MODEL)) {
+  if (parseBooleanFlag(process.env.DISPLAY_MODEL, true)) {
     setOutput("model_display", buildModelDisplay({
       agent,
       model: reportedModel,
       reasoningEffort: process.env.MODEL_REASONING_EFFORT || "",
+      runnerName: process.env.RUNNER_NAME || "",
     }));
   }
 

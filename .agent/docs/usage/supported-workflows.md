@@ -23,7 +23,7 @@ title: "Supported workflows"
 | `agent-daily-summary.yml` | `schedule` (daily, disabled by default), `workflow_dispatch` | Generates a concise repository activity summary and posts it as a Discussion | Auto |
 | `agent-project-manager.yml` | `schedule` (every 6h), `workflow_dispatch` | Opt-in agent-driven triage for open issues and PRs, with dry-run summaries and optional priority/effort label updates | Auto |
 | `agent-update.yml` | `schedule` (1st and 15th), `workflow_dispatch` | Checks for Sepo agent infrastructure updates and opens a PR only when updates are available | Auto |
-| `agent-onboarding.yml` | `workflow_dispatch` | First-run setup check that creates built-in trigger labels and opens or updates a setup issue | None |
+| `agent-onboarding.yml` | `workflow_dispatch` | First-run setup check that creates built-in labels and opens or updates an agent-tracked setup issue | None |
 | `test-scripts.yml` | `pull_request`, `workflow_dispatch` | CI for helper tests, YAML parsing, and shell syntax | None |
 
 All packaged `agent-*.yml` workflow jobs honor `AGENT_ENABLED=false` as a
@@ -185,26 +185,29 @@ cron with an `AGENT_SCHEDULE_POLICY` workflow override.
 
 `agent-update.yml` runs near-biweekly because GitHub cron does not support a
 native every-14-days cadence. It resolves its source to the latest published
-stable Sepo release tag before invoking the existing `update-agent` skill.
+stable Sepo release tag before invoking the dedicated `update-agent` route and
+`.github/prompts/agent-update.md` prompt.
 Manual dispatch can pass `source_ref` to test `main`, a branch, or a specific
 tag. If no release exists yet, it falls back to `main` and records that fallback
 in the run summary. The workflow skips when `AGENT_AUTO_UPDATE=false` or
 `AGENT_SCHEDULE_POLICY` disables it. When a same-repository
 `agent/update-agent-infra-*` PR is already open, the workflow keeps the runtime
 checkout on the default branch, prepares the existing PR branch as the update
-target, and asks the update skill to update that PR instead of opening a
+target, and asks the update route to update that PR instead of opening a
 duplicate. A manual `force=true` run ignores the existing PR lookup and starts
 from the default branch. The canonical `self-evolving/repo` source repository
 should set `AGENT_AUTO_UPDATE=false` when scheduled self-updates are not wanted;
 manual dispatch remains available for explicit source ref testing.
 
-Single-agent routes, autonomous agent workflows, and the review synthesis step resolve provider/model settings before installing provider CLIs. Explicit provider choices from inline workflow `route_provider`, `AGENT_MODEL_POLICY.route_overrides[route].provider`, or `AGENT_DEFAULT_PROVIDER` are authoritative: the workflows select that provider even when the matching repository secret is absent, so self-hosted runners can rely on local Codex or Claude authentication. When the provider is `auto`, detection uses configured provider secrets and prefers Codex when `OPENAI_API_KEY` is configured; otherwise Claude is selected when either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is present. `AGENT_MODEL_POLICY` can also set provider-specific models and route-specific reasoning effort; inline workflow `route_provider` remains the native escape hatch. Portal and skill jobs use non-fatal early resolution before non-agent response paths, then require a provider only immediately before invoking an agent. The review workflow's Claude/Codex reviewer lanes remain static; the policy applies to review synthesis.
+Single-agent routes, autonomous agent workflows, fixed review lanes, and the review synthesis step resolve provider/model settings before installing provider CLIs. Explicit provider choices from inline workflow `route_provider`, `AGENT_MODEL_POLICY.route_overrides[route].provider`, or `AGENT_DEFAULT_PROVIDER` are authoritative: the workflows select that provider even when the matching repository secret is absent, so self-hosted runners can rely on local Codex or Claude authentication. When the provider is `auto`, detection uses configured provider secrets and prefers Codex when `OPENAI_API_KEY` is configured; otherwise Claude is selected when either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is present. Resolved Codex and Claude runs use Sepo's small pinned model defaults unless `AGENT_MODEL_POLICY` overrides them: `gpt-5.5` for Codex and `claude-opus-4-8` for Claude. `AGENT_MODEL_POLICY` can also set provider-specific models and route-specific model or reasoning effort overrides; inline workflow `route_provider` remains the native escape hatch. Portal and skill jobs use non-fatal early resolution before non-agent response paths, then require a provider only immediately before invoking an agent. The review workflow's Claude/Codex reviewer lanes keep fixed providers through inline `route_provider`, so provider-specific model settings apply there while route-specific review overrides are left to synthesis.
 
 ## Trigger details
 
 ### `agent-entrypoint.yml`
 
-The broad pre-filter is `contains(toJSON(github.event), '@sepo-agent')`. Real mention validation happens in `agent-router.yml` through `extract-context.js`. That validation is boundary-aware and strips code blocks and quoted text before deciding whether a mention is live.
+The broad pre-filter starts the router when the event contains `@sepo-agent`. Real mention validation happens in `agent-router.yml` through `extract-context.js`. That validation is boundary-aware and strips code blocks and quoted text before deciding whether a mention is live.
+
+When `AGENT_FOLLOWUP_INTENT_MODE` is unset or `agent-label`, new unmentioned issue/PR comments, new PR review comments, and submitted PR reviews can also wake the router if the target already has the fixed `agent` label. The router marks these as `implicit_followup=true`, checks `answer` route authorization before the intent gate, and only continues to the inline `answer` route when the communication-rubric-aware gate returns `respond`. `ignore` posts nothing. Set `AGENT_FOLLOWUP_INTENT_MODE=disabled` or `false` to require explicit mentions only.
 
 Supported surfaces:
 
@@ -218,7 +221,7 @@ Supported surfaces:
 | `discussion` | discussion title, discussion body |
 | `discussion_comment` | comment body |
 
-By default, the portal responds to `OWNER`, `MEMBER`, `COLLABORATOR`, and `CONTRIBUTOR` associations. `AGENT_ACCESS_POLICY` can tighten or widen access globally or for specific routes; public repositories that do not want prior contributors to trigger Sepo should remove `CONTRIBUTOR` from the allowlist. Bot authors are always skipped. Implicit mentions are triaged first and then checked against the resolved route, so denied requests get a visible unsupported reply instead of being dropped silently. See [Trigger access policy](../customization/access-policy.md).
+By default, the portal responds to `OWNER`, `MEMBER`, `COLLABORATOR`, and `CONTRIBUTOR` associations. `AGENT_ACCESS_POLICY` can tighten or widen access globally or for specific routes; public repositories that do not want prior contributors to trigger Sepo should remove `CONTRIBUTOR` from the allowlist. Bot authors are always skipped. Mention-based implicit route requests are triaged first and then checked against the resolved route, so denied requests get a visible unsupported reply instead of being dropped silently. Unmentioned implicit follow-ups are answer-only and are dropped silently when the answer route is not authorized. See [Trigger access policy](../customization/access-policy.md).
 
 Explicit routes are:
 
@@ -279,11 +282,14 @@ Applying one of these labels triggers the same downstream routing stack without 
 - `agent/s/<skill>`
 
 Run `Agent / Onboarding / Check Setup` after installing Sepo to create the
-built-in labels. The workflow also opens or updates a `Sepo setup check` issue
-with auth/provider readiness, memory and rubrics branch status, and copyable
-commands for first test runs. Skill labels still use `agent/s/<skill>` and are
-created per skill as needed. Onboarding also creates the non-trigger
-`agent-goal` label used by the [repository goals](../architecture/goals.md) convention.
+built-in labels. The workflow also ensures the non-trigger `agent` status label
+exists, applies it to the `Sepo setup check` issue, and opens or updates that
+issue with auth/provider readiness, memory and rubrics branch status, and
+copyable commands for first test runs. The status label makes the setup issue
+eligible for `Agent / Close Stale Issues` after the standard inactive window.
+Skill labels still use `agent/s/<skill>` and are created per skill as needed.
+Onboarding also creates the non-trigger `agent-goal` label used by the
+[repository goals](../architecture/goals.md) convention.
 
 After a label-triggered request is accepted by the router, `agent-label.yml` removes the triggering `agent/*` label so label-based runs behave like one-shot queue entries, including policy-denied requests that resolve to `unsupported`.
 
