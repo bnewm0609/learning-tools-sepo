@@ -4,14 +4,14 @@
     "login": "app/sepo-agent-app"
   },
   "baseRefName": "main",
-  "body": "## Summary\n\n- Updates Sepo agent infrastructure from **v0.2.0** to **v0.3.0** (bec597687fdb1a1786e7127ee6ddd5ec088f36af)\n- Syncs `.agent/` source (TypeScript, docs, templates) and all `.github/` agent workflows/actions/prompts\n- Key new capability: model policy / model selection support (`AGENT_MODEL_POLICY`, `model` and `reasoning_effort` outputs from `resolve-agent-provider`, `model`/`display_model` inputs to `run-agent-task`)\n\n## Source\n\n- **Source repo/ref:** `self-evolving/repo@v0.3.0`\n- **Source SHA:** `bec597687fdb1a1786e7127ee6ddd5ec088f36af`\n- **Target branch:** `main`\n\n## Audit Summary\n\n| Path group | Status |\n|---|---|\n| `.agent/` (src, docs, templates, package.json) | ✅ Safe replace — all agent-owned |\n| `.github/actions/resolve-agent-provider/action.yml` | ✅ Safe replace — agent-owned; switches to `resolve-provider.js` |\n| `.github/actions/resolve-agent-provider/resolve-provider.js` | ✅ New file added |\n| `.github/actions/run-agent-task/action.yml` | ✅ Safe replace — agent-owned |\n| `.github/workflows/*.yml` (18 files updated) | ✅ Safe replace — all agent-owned |\n| `.github/actions/resolve-agent-provider/resolve-provider.sh` | ⚠️ Preserved (now superseded by `.js`; obsolete-file removal not requested) |\n| `.gitignore` | ✅ Already contains `.agent/dist/` and `.agent/node_modules/` entries — no change needed |\n| `agent/memory` branch | ✅ Exists — no reinit needed |\n| `agent/rubrics` branch | ✅ Exists — no reinit needed |\n\n## Customizations Preserved\n\n- `.github/actions/resolve-agent-provider/resolve-provider.sh` — kept (unused after this update; safe to delete later if desired)\n- All target-only `.github/` files (e.g. `agent-approve.yml`, `agent-branch-cleanup.yml`, etc.) — untouched\n\n## Removed Files\n\nNone (obsolete-file removal was not requested for this run).\n\n## Validation Results\n\n- `npm --prefix .agent ci` — ✅ passed\n- `npm --prefix .agent run build` — ✅ passed (TypeScript compilation clean)\n- `npm --prefix .agent test` — ✅ 686/686 tests passed, 0 failed\n- YAML syntax check for all `.github/workflows/*.yml` — ✅ all 25 files valid\n- `git diff --check` (whitespace) — ✅ clean\n\n## Memory / Rubrics Branch Status\n\n- `agent/memory` — ✅ exists at `559fc56e470e6fc087b6c58b382513a4dc2a316b`\n- `agent/rubrics` — ✅ exists at `b532a696f8c2fcfe6314068b49a50f7eaad602dd`\n\n## Post-Merge Notes\n\n1. No secrets changes required — existing auth paths are unchanged.\n2. **New optional secrets:** `AGENT_MODEL_POLICY` (JSON) can now be set as a repository secret/variable to configure model selection and reasoning effort per route. Not required; defaults apply if absent.\n3. `resolve-provider.sh` is now unused and can be deleted via a follow-up PR if desired.\n4. Smoke test after merge: open an issue and mention `@sepo-agent /answer` to verify the updated runtime.",
+  "body": "## Summary\n\n- Updates Sepo agent infrastructure from **v0.2.0** to **v0.3.1** (c058dba69a2773cd5837b1d2a5883a1042ee26b5)\n- Syncs `.agent/` source (TypeScript, docs, templates) and all `.github/` agent workflows/actions/prompts\n- Key new capabilities in v0.3.0–v0.3.1: model policy / model selection support, followup-intent classification, runtime-env isolation, answer-review context, OIDC auth improvements\n\n## Source\n\n- **Source repo/ref:** `self-evolving/repo@v0.3.1`\n- **Source SHA:** `c058dba69a2773cd5837b1d2a5883a1042ee26b5`\n- **Target branch:** `main`\n\n## Audit Summary\n\n| Path group | Status |\n|---|---|\n| `.agent/` (src, docs, templates, package.json) | ✅ Safe replace — all agent-owned |\n| `.agent/src/followup-intent.ts` | ✅ New file added |\n| `.agent/src/answer-review-context.ts` | ✅ New file added |\n| `.agent/src/runtime-env.ts` | ✅ New file added |\n| `.agent/src/__tests__/followup-intent.test.ts` | ✅ New test added |\n| `.agent/src/__tests__/resolve-github-auth-oidc-shell.test.ts` | ✅ New test added |\n| `.agent/src/__tests__/runtime-env.test.ts` | ✅ New test added |\n| `.github/actions/resolve-agent-provider/action.yml` | ✅ Safe replace — agent-owned |\n| `.github/actions/resolve-agent-provider/resolve-provider.js` | ✅ Safe replace — agent-owned |\n| `.github/actions/resolve-github-auth/exchange-oidc.sh` | ✅ Safe replace — agent-owned |\n| `.github/actions/run-agent-task/action.yml` | ✅ Safe replace — agent-owned |\n| `.github/prompts/_base.md`, `agent-answer.md`, `agent-dispatch.md` | ✅ Safe replace — agent-owned |\n| `.github/prompts/agent-update.md` | ✅ New prompt added |\n| `.github/prompts/followup-intent.md` | ✅ New prompt added |\n| `.github/workflows/agent-entrypoint.yml`, `agent-fix-pr.yml`, `agent-review.yml`, `agent-router.yml`, `agent-update.yml` | ✅ Safe replace — agent-owned |\n| `.github/actions/resolve-agent-provider/resolve-provider.sh` | ⚠️ Preserved (superseded by `.js`; obsolete-file removal not requested) |\n| `.gitignore` | ✅ Already contains `.agent/dist/` and `.agent/node_modules/` entries — no change needed |\n| `agent/memory` branch | ✅ Exists at `7c7805a25886fbd6869832620a0f8ff6d92fc468` — no reinit needed |\n| `agent/rubrics` branch | ✅ Exists at `b532a696f8c2fcfe6314068b49a50f7eaad602dd` — no reinit needed |\n\n## Customizations Preserved\n\n- `.github/actions/resolve-agent-provider/resolve-provider.sh` — kept (unused after this update; safe to delete later if desired)\n- All target-only `.github/` files (e.g. `agent-approve.yml`, `agent-branch-cleanup.yml`, etc.) — untouched\n\n## Removed Files\n\nNone (obsolete-file removal was not requested for this run).\n\n## Validation Results\n\n- `npm --prefix .agent ci` — ✅ passed\n- `npm --prefix .agent run build` — ✅ passed (TypeScript compilation clean)\n- `npm --prefix .agent test` — ✅ 713/713 tests passed, 0 failed (27 new tests in v0.3.1)\n- YAML syntax check for all `.github/workflows/*.yml` — ✅ all 25 files valid\n- `git diff --cached --check` (whitespace) — ✅ clean\n\n## Memory / Rubrics Branch Status\n\n- `agent/memory` — ✅ exists at `7c7805a25886fbd6869832620a0f8ff6d92fc468`\n- `agent/rubrics` — ✅ exists at `b532a696f8c2fcfe6314068b49a50f7eaad602dd`\n\n## Post-Merge Notes\n\n1. No secrets changes required — existing auth paths are unchanged.\n2. **`AGENT_MODEL_POLICY`** (new optional secret from v0.3.0) — if not yet configured, this optional JSON secret enables per-route model/reasoning-effort selection. Not required; defaults apply if absent.\n3. `resolve-provider.sh` is now unused and can be deleted via a follow-up PR if desired.\n4. Smoke test after merge: open an issue and mention `@sepo-agent /answer` to verify the updated runtime.",
   "closedAt": null,
   "comments": [],
   "createdAt": "2026-06-01T15:38:49Z",
   "files": [
     {
       "path": ".agent/CHANGELOG.md",
-      "additions": 24,
+      "additions": 35,
       "deletions": 0,
       "changeType": "MODIFIED"
     },
@@ -22,9 +22,39 @@
       "changeType": "MODIFIED"
     },
     {
-      "path": ".agent/docs/customization/configuration-list.md",
-      "additions": 18,
+      "path": ".agent/docs/architecture/request-lifecycle.md",
+      "additions": 3,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/docs/architecture/rubrics.md",
+      "additions": 1,
       "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/docs/customization/configuration-list.md",
+      "additions": 31,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/docs/index.md",
+      "additions": 2,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/docs/overview/quick-start.md",
+      "additions": 2,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/docs/setup/install-existing-repository.md",
+      "additions": 4,
+      "deletions": 3,
       "changeType": "MODIFIED"
     },
     {
@@ -34,52 +64,100 @@
       "changeType": "MODIFIED"
     },
     {
+      "path": ".agent/docs/technical-details/key-concepts.md",
+      "additions": 4,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
       "path": ".agent/docs/technical-details/session-continuity.md",
       "additions": 6,
       "deletions": 0,
       "changeType": "MODIFIED"
     },
     {
+      "path": ".agent/docs/usage/agent-actions.md",
+      "additions": 14,
+      "deletions": 4,
+      "changeType": "MODIFIED"
+    },
+    {
       "path": ".agent/docs/usage/internal-actions.md",
-      "additions": 2,
+      "additions": 4,
       "deletions": 2,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/docs/usage/supported-workflows.md",
-      "additions": 1,
-      "deletions": 1,
+      "additions": 17,
+      "deletions": 11,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/package-lock.json",
-      "additions": 2,
+      "additions": 116,
       "deletions": 2,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/package.json",
-      "additions": 1,
+      "additions": 2,
       "deletions": 1,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/src/__tests__/acpx-adapter.test.ts",
-      "additions": 115,
-      "deletions": 1,
+      "additions": 146,
+      "deletions": 10,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/src/__tests__/envelope.test.ts",
-      "additions": 48,
-      "deletions": 8,
+      "additions": 249,
+      "deletions": 17,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/extract-context-cli.test.ts",
+      "additions": 137,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/followup-intent.test.ts",
+      "additions": 115,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": ".agent/src/__tests__/onboarding-check-cli.test.ts",
+      "additions": 6,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/prompt-continuation.test.ts",
+      "additions": 25,
+      "deletions": 0,
       "changeType": "MODIFIED"
     },
     {
       "path": ".agent/src/__tests__/resolve-agent-provider.test.ts",
-      "additions": 162,
+      "additions": 182,
       "deletions": 3,
       "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/resolve-dispatch-cli.test.ts",
+      "additions": 152,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/resolve-github-auth-oidc-shell.test.ts",
+      "additions": 165,
+      "deletions": 0,
+      "changeType": "ADDED"
     },
     {
       "path": ".agent/src/__tests__/response.test.ts",
@@ -88,9 +166,33 @@
       "changeType": "MODIFIED"
     },
     {
+      "path": ".agent/src/__tests__/rubrics.test.ts",
+      "additions": 22,
+      "deletions": 27,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/__tests__/runtime-env.test.ts",
+      "additions": 46,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
       "path": ".agent/src/acpx-adapter.ts",
-      "additions": 29,
-      "deletions": 15,
+      "additions": 103,
+      "deletions": 19,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/answer-review-context.ts",
+      "additions": 37,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": ".agent/src/cli/extract-context.ts",
+      "additions": 71,
+      "deletions": 45,
       "changeType": "MODIFIED"
     },
     {
@@ -106,16 +208,58 @@
       "changeType": "MODIFIED"
     },
     {
+      "path": ".agent/src/cli/resolve-dispatch.ts",
+      "additions": 72,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/envelope.ts",
+      "additions": 1,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/followup-intent.ts",
+      "additions": 104,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": ".agent/src/onboarding.ts",
+      "additions": 8,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/prompt-continuation.ts",
+      "additions": 2,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
       "path": ".agent/src/response.ts",
       "additions": 8,
       "deletions": 0,
       "changeType": "MODIFIED"
     },
     {
-      "path": ".agent/src/run.ts",
-      "additions": 46,
+      "path": ".agent/src/rubrics.ts",
+      "additions": 0,
       "deletions": 1,
       "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/run.ts",
+      "additions": 85,
+      "deletions": 22,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".agent/src/runtime-env.ts",
+      "additions": 62,
+      "deletions": 0,
+      "changeType": "ADDED"
     },
     {
       "path": ".github/actions/resolve-agent-provider/action.yml",
@@ -125,15 +269,51 @@
     },
     {
       "path": ".github/actions/resolve-agent-provider/resolve-provider.js",
-      "additions": 257,
+      "additions": 263,
       "deletions": 0,
       "changeType": "ADDED"
     },
     {
+      "path": ".github/actions/resolve-github-auth/exchange-oidc.sh",
+      "additions": 41,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
       "path": ".github/actions/run-agent-task/action.yml",
+      "additions": 32,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".github/prompts/_base.md",
+      "additions": 1,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".github/prompts/agent-answer.md",
+      "additions": 3,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": ".github/prompts/agent-dispatch.md",
       "additions": 16,
       "deletions": 0,
       "changeType": "MODIFIED"
+    },
+    {
+      "path": ".github/prompts/agent-update.md",
+      "additions": 201,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": ".github/prompts/followup-intent.md",
+      "additions": 37,
+      "deletions": 0,
+      "changeType": "ADDED"
     },
     {
       "path": ".github/workflows/agent-daily-summary.yml",
@@ -142,9 +322,15 @@
       "changeType": "MODIFIED"
     },
     {
+      "path": ".github/workflows/agent-entrypoint.yml",
+      "additions": 29,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
       "path": ".github/workflows/agent-fix-pr.yml",
-      "additions": 5,
-      "deletions": 0,
+      "additions": 8,
+      "deletions": 3,
       "changeType": "MODIFIED"
     },
     {
@@ -191,14 +377,14 @@
     },
     {
       "path": ".github/workflows/agent-review.yml",
-      "additions": 5,
-      "deletions": 1,
+      "additions": 22,
+      "deletions": 5,
       "changeType": "MODIFIED"
     },
     {
       "path": ".github/workflows/agent-router.yml",
-      "additions": 24,
-      "deletions": 5,
+      "additions": 173,
+      "deletions": 14,
       "changeType": "MODIFIED"
     },
     {
@@ -227,8 +413,8 @@
     },
     {
       "path": ".github/workflows/agent-update.yml",
-      "additions": 4,
-      "deletions": 0,
+      "additions": 9,
+      "deletions": 4,
       "changeType": "MODIFIED"
     }
   ],
@@ -239,7 +425,7 @@
   "reviewDecision": "",
   "reviews": [],
   "state": "OPEN",
-  "title": "Update Sepo from v0.2.0 to v0.3.0/bec597687fdb1a1786e7127ee6ddd5ec088f36af",
-  "updatedAt": "2026-06-01T15:38:49Z",
+  "title": "Update Sepo from v0.2.0 to v0.3.1/c058dba69a2773cd5837b1d2a5883a1042ee26b5",
+  "updatedAt": "2026-06-15T15:29:05Z",
   "url": "https://github.com/bnewm0609/learning-tools-sepo/pull/8"
 }
