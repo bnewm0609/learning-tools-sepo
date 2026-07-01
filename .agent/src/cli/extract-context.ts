@@ -1,16 +1,21 @@
 // CLI: extract portal event context from GitHub webhook payload.
 // Usage: node .agent/dist/cli/extract-context.js
 // Env: GITHUB_EVENT_PATH, GITHUB_EVENT_NAME, GITHUB_REPOSITORY, INPUT_MENTION,
-//      INPUT_TRIGGER_KIND, INPUT_LABEL_NAME, INPUT_AUTHOR_ASSOCIATION
+//      INPUT_TRIGGER_KIND, INPUT_LABEL_NAME, INPUT_AUTHOR_ASSOCIATION,
+//      INPUT_FOLLOWUP_INTENT_MODE
 // Outputs: should_respond, association, body, source_kind, target_kind,
 //          target_number, target_url, reaction_subject_id, response_kind,
 //          source_comment_id, source_comment_url, review_comment_id,
 //          discussion_node_id, reply_to_id, requested_by, requested_route,
-//          requested_skill
+//          requested_skill, implicit_followup
 
 import { readFileSync } from "node:fs";
 import { isKnownAuthorAssociation } from "../access-policy.js";
-import { ghApi, ghApiOk } from "../github.js";
+import {
+  hasGithubRepositoryCollaborator,
+  resolveGithubActorAssociation,
+} from "../actor-association.js";
+import { ghApi } from "../github.js";
 import { setOutput } from "../output.js";
 import {
   DEFAULT_MENTION,
@@ -22,6 +27,10 @@ import {
 } from "../context.js";
 import { isApprovalCommand } from "../approval.js";
 import { resolveDiscussionReplyTo } from "../discussion.js";
+import {
+  parseFollowupIntentMode,
+  shouldConsiderImplicitFollowup,
+} from "../followup-intent.js";
 import { extractRequestedRouteDecision, resolveRequestedLabel } from "../triage.js";
 
 const eventPath = process.env.GITHUB_EVENT_PATH;
@@ -30,6 +39,7 @@ const mention = process.env.INPUT_MENTION || DEFAULT_MENTION;
 const triggerKind = String(process.env.INPUT_TRIGGER_KIND || "mention").trim().toLowerCase();
 const labelName = process.env.INPUT_LABEL_NAME || "";
 const authorAssociationOverride = process.env.INPUT_AUTHOR_ASSOCIATION || "";
+const followupIntentModeRaw = process.env.INPUT_FOLLOWUP_INTENT_MODE || process.env.AGENT_FOLLOWUP_INTENT_MODE || "";
 const repository = process.env.GITHUB_REPOSITORY || "";
 const ASSOCIATIONS_TRUSTED_WITHOUT_REFRESH = new Set([
   "OWNER",
@@ -47,44 +57,6 @@ function normalizeAssociation(association: string): string {
   return String(association || "").trim().toUpperCase();
 }
 
-function hasOrgMembership(orgLogin: string, userLogin: string): boolean {
-  const membershipState = ghApi([
-    `orgs/${orgLogin}/memberships/${userLogin}`,
-    "--jq",
-    ".state // empty",
-  ]).toLowerCase();
-  if (membershipState === "active") {
-    return true;
-  }
-
-  // Public membership endpoint returns 204 (empty body) on success, so use
-  // ghApiOk rather than checking the body.
-  return ghApiOk([`orgs/${orgLogin}/members/${userLogin}`]);
-}
-
-function hasRepositoryPermission(userLogin: string): boolean {
-  if (!repository || !userLogin) {
-    return false;
-  }
-
-  const permission = ghApi([
-    `repos/${repository}/collaborators/${userLogin}/permission`,
-    "--jq",
-    ".permission // .role_name // empty",
-  ]).toLowerCase();
-
-  return Boolean(permission) && permission !== "none";
-}
-
-function hasRepositoryCollaborator(userLogin: string): boolean {
-  const login = String(userLogin || "").trim();
-  if (!repository || !login) {
-    return false;
-  }
-
-  return ghApiOk([`repos/${repository}/collaborators/${login}`]);
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function resolveLabelActorAssociation(payload: Record<string, any>): string {
   const override = String(authorAssociationOverride || "").trim().toUpperCase();
@@ -99,19 +71,13 @@ function resolveLabelActorAssociation(payload: Record<string, any>): string {
     return "NONE";
   }
 
-  if (ownerType === "user" && senderLogin.toLowerCase() === ownerLogin.toLowerCase()) {
-    return "OWNER";
-  }
-
-  if (ownerType === "organization" && ownerLogin && hasOrgMembership(ownerLogin, senderLogin)) {
-    return "MEMBER";
-  }
-
-  if (hasRepositoryPermission(senderLogin)) {
-    return "COLLABORATOR";
-  }
-
-  return "NONE";
+  return resolveGithubActorAssociation({
+    repo: repository,
+    actorLogin: senderLogin,
+    ownerLogin,
+    ownerType,
+    lookupOrder: "organization-first",
+  });
 }
 
 function refreshIssueAssociation(
@@ -152,7 +118,7 @@ function normalizeMentionAuthorAssociation(association: string, payload: Record<
 
   if (
     WEAK_ASSOCIATIONS_FOR_COLLABORATOR_FALLBACK.has(resolvedNormalized) &&
-    hasRepositoryCollaborator(getRequestedBy(eventName, payload))
+    hasGithubRepositoryCollaborator(repository, getRequestedBy(eventName, payload))
   ) {
     return "COLLABORATOR";
   }
@@ -188,58 +154,78 @@ if (!eventPath || !eventName) {
       if (!ctx.targetNumber) {
         setOutput("should_respond", "false");
         console.log("No target number found");
-      }
-      // Gate 4: check for live mention when mention-triggered
-      else if (triggerKind !== "label" && !shouldRespondToMention(eventName, payload, mention)) {
-        setOutput("should_respond", "false");
-        console.log("No live mention found");
-      }
-      // Gate 5: skip approval commands on mention triggers
-      else if (triggerKind !== "label" && isApprovalCommand(ctx.body, mention)) {
-        setOutput("should_respond", "false");
-        console.log("Skipping approval command (handled by agent-approve)");
       } else {
-        // Resolve discussion reply threading if needed
-        let replyToId = "";
-        if (ctx.discussionCommentNodeId) {
+        const hasMentionTrigger = triggerKind !== "label" && shouldRespondToMention(eventName, payload, mention);
+        let implicitFollowup = false;
+        if (triggerKind !== "label" && !hasMentionTrigger) {
           try {
-            replyToId = resolveDiscussionReplyTo(ctx.discussionCommentNodeId);
+            implicitFollowup = shouldConsiderImplicitFollowup(
+              eventName,
+              payload,
+              parseFollowupIntentMode(followupIntentModeRaw),
+            );
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`Could not resolve discussion reply-to: ${msg}`);
+            console.error(msg);
+            process.exitCode = 2;
           }
         }
 
-        const requestedBy =
-          (triggerKind === "label" ? payload.sender?.login : "") || getRequestedBy(eventName, payload);
-        const requestedLabel = triggerKind === "label" ? resolveRequestedLabel(labelName) : null;
-        const requestedMention = triggerKind === "label"
-          ? { route: "", skill: "" }
-          : extractRequestedRouteDecision(ctx.body, mention);
-        const requestedRoute = requestedLabel?.route || requestedMention.route;
-        const requestedSkill = requestedLabel?.skill || requestedMention.skill;
-
-        if (triggerKind === "label" && !requestedLabel) {
+        // Gate 4: check for live mention or eligible implicit follow-up.
+        if (process.exitCode) {
+          // Invalid follow-up configuration was already reported above.
+        } else if (triggerKind !== "label" && !hasMentionTrigger && !implicitFollowup) {
           setOutput("should_respond", "false");
-          console.log(`Ignoring unsupported agent label: ${labelName || "missing"}`);
+          console.log("No live mention or eligible implicit follow-up found");
+        }
+        // Gate 5: skip approval commands on mention triggers
+        else if (triggerKind !== "label" && hasMentionTrigger && isApprovalCommand(ctx.body, mention)) {
+          setOutput("should_respond", "false");
+          console.log("Skipping approval command (handled by agent-approve)");
         } else {
-          setOutput("should_respond", "true");
-          setOutput("association", association);
-          setOutput("body", ctx.body);
-          setOutput("source_kind", ctx.sourceKind);
-          setOutput("target_kind", ctx.targetKind);
-          setOutput("target_number", ctx.targetNumber);
-          setOutput("target_url", ctx.targetUrl);
-          setOutput("reaction_subject_id", ctx.reactionSubjectId);
-          setOutput("response_kind", ctx.responseKind);
-          setOutput("source_comment_id", ctx.sourceCommentId || "");
-          setOutput("source_comment_url", ctx.sourceCommentUrl || "");
-          setOutput("review_comment_id", ctx.reviewCommentId || "");
-          setOutput("discussion_node_id", ctx.discussionNodeId || "");
-          setOutput("reply_to_id", replyToId);
-          setOutput("requested_by", requestedBy);
-          setOutput("requested_route", requestedRoute);
-          setOutput("requested_skill", requestedSkill);
+          // Resolve discussion reply threading if needed
+          let replyToId = "";
+          if (ctx.discussionCommentNodeId) {
+            try {
+              replyToId = resolveDiscussionReplyTo(ctx.discussionCommentNodeId);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn(`Could not resolve discussion reply-to: ${msg}`);
+            }
+          }
+
+          const requestedBy =
+            (triggerKind === "label" ? payload.sender?.login : "") || getRequestedBy(eventName, payload);
+          const requestedLabel = triggerKind === "label" ? resolveRequestedLabel(labelName) : null;
+          const requestedMention = triggerKind === "label" || implicitFollowup
+            ? { route: "", skill: "" }
+            : extractRequestedRouteDecision(ctx.body, mention);
+          const requestedRoute = requestedLabel?.route || requestedMention.route;
+          const requestedSkill = requestedLabel?.skill || requestedMention.skill;
+
+          if (triggerKind === "label" && !requestedLabel) {
+            setOutput("should_respond", "false");
+            console.log(`Ignoring unsupported agent label: ${labelName || "missing"}`);
+          } else {
+            setOutput("should_respond", "true");
+            setOutput("association", association);
+            setOutput("body", ctx.body);
+            setOutput("source_kind", ctx.sourceKind);
+            setOutput("target_kind", ctx.targetKind);
+            setOutput("target_number", ctx.targetNumber);
+            setOutput("target_url", ctx.targetUrl);
+            setOutput("reaction_subject_id", ctx.reactionSubjectId);
+            setOutput("response_kind", ctx.responseKind);
+            setOutput("source_comment_id", ctx.sourceCommentId || "");
+            setOutput("source_comment_url", ctx.sourceCommentUrl || "");
+            setOutput("review_comment_id", ctx.reviewCommentId || "");
+            setOutput("discussion_node_id", ctx.discussionNodeId || "");
+            setOutput("reply_to_id", replyToId);
+            setOutput("requested_by", requestedBy);
+            setOutput("requested_route", requestedRoute);
+            setOutput("requested_skill", requestedSkill);
+            setOutput("implicit_followup", implicitFollowup ? "true" : "false");
+          }
         }
       }
     }

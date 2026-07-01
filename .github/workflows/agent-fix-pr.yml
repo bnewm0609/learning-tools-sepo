@@ -141,6 +141,7 @@ jobs:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model_policy: ${{ vars.AGENT_MODEL_POLICY || '' }}
 
       - name: Setup agent runtime
         id: runtime
@@ -188,17 +189,25 @@ jobs:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           claude_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: ${{ steps.provider.outputs.model }}
+          display_model: ${{ vars.AGENT_DISPLAY_MODEL || '' }}
+          reasoning_effort: ${{ steps.provider.outputs.reasoning_effort || 'xhigh' }}
           prompt: fix-pr
           route: fix-pr
           lane: fix-pr-${{ steps.provider.outputs.provider }}
           memory_ref: ${{ vars.AGENT_MEMORY_REF || 'agent/memory' }}
           memory_policy: ${{ vars.AGENT_MEMORY_POLICY || '' }}
+          progress_policy: ${{ vars.AGENT_PROGRESS_POLICY || '' }}
+          orchestration_enabled: ${{ inputs.orchestration_enabled }}
           rubrics_ref: ${{ vars.AGENT_RUBRICS_REF || 'agent/rubrics' }}
           rubrics_policy: ${{ vars.AGENT_RUBRICS_POLICY || '' }}
           rubrics_limit: ${{ vars.AGENT_RUBRICS_LIMIT || '10' }}
           session_bundle_mode: ${{ inputs.session_bundle_mode || vars.AGENT_SESSION_BUNDLE_MODE || 'auto' }}
           session_policy: resume-best-effort
           request_text: ${{ inputs.request_text }}
+          request_comment_id: ${{ inputs.request_comment_id }}
+          request_comment_url: ${{ inputs.request_comment_url }}
+          request_source_kind: ${{ inputs.request_source_kind || 'workflow_dispatch' }}
           requested_by: ${{ inputs.requested_by || github.actor }}
           source_kind: ${{ inputs.request_source_kind || 'workflow_dispatch' }}
           target_kind: pull_request
@@ -206,9 +215,6 @@ jobs:
           target_url: ${{ github.server_url }}/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
           workflow: agent-fix-pr.yml
         env:
-          REQUEST_COMMENT_ID: ${{ inputs.request_comment_id }}
-          REQUEST_COMMENT_URL: ${{ inputs.request_comment_url }}
-          REQUEST_SOURCE_KIND: ${{ inputs.request_source_kind || 'workflow_dispatch' }}
           ORCHESTRATOR_CONTEXT: ${{ inputs.orchestrator_context }}
 
       - name: Detect PR branch head update
@@ -237,8 +243,16 @@ jobs:
           VERIFY_EXIT_CODE: ${{ steps.verify.outputs.verify_exit_code }}
         run: node .agent/dist/cli/parse-response.js
 
+      - name: Resolve progress cancellation status
+        if: always() && steps.pr.outputs.cross_repo != 'true' && steps.pr.outputs.pr_state == 'OPEN'
+        id: progress_status
+        env:
+          AGENT_PROGRESS_CANCEL_MARKER_FILE: ${{ runner.temp }}/agent-progress-cancelled
+          STATUS: ${{ steps.response.outputs.status || 'failed' }}
+        run: node .agent/dist/cli/resolve-progress-status.js
+
       - name: Commit and push to PR branch
-        if: steps.response.outputs.status == 'success' && steps.verify.outputs.has_changes == 'true'
+        if: steps.progress_status.outputs.status == 'success' && steps.verify.outputs.has_changes == 'true'
         id: commit
         env:
           BRANCH: ${{ steps.pr.outputs.head_ref }}
@@ -252,7 +266,7 @@ jobs:
         run: node .agent/dist/cli/commit.js
 
       - name: Push PR branch head update
-        if: steps.response.outputs.status == 'success' && steps.verify.outputs.has_changes != 'true' && steps.head.outputs.head_changed == 'true'
+        if: steps.progress_status.outputs.status == 'success' && steps.verify.outputs.has_changes != 'true' && steps.head.outputs.head_changed == 'true'
         id: push-head
         env:
           BRANCH: ${{ steps.pr.outputs.head_ref }}
@@ -272,10 +286,14 @@ jobs:
           PR_NUMBER: ${{ env.PR_NUMBER }}
           REQUESTED_BY: ${{ inputs.orchestration_enabled == 'true' && (vars.AGENT_HANDLE || '@sepo-agent') || inputs.requested_by || github.actor }}
           RESPONSE_FILE: ${{ steps.agent.outputs.response_file }}
+          AGENT_PROGRESS_COMMENT_ID: ${{ steps.agent.outputs.progress_comment_id }}
+          AGENT_PROGRESS_FINAL_COMMENT_MODE: merge
+          MODEL_DISPLAY: ${{ steps.agent.outputs.model_display }}
           RESUME_STATUS: ${{ steps.agent.outputs.resume_status }}
           ROUTE: fix-pr
-          STATUS: ${{ (steps.commit.outcome == 'failure' || steps.push-head.outcome == 'failure') && 'failed' || steps.response.outputs.status || 'failed' }}
+          STATUS: ${{ steps.progress_status.outputs.cancelled == 'true' && 'cancelled' || (steps.commit.outcome == 'failure' || steps.push-head.outcome == 'failure') && 'failed' || steps.progress_status.outputs.status || steps.response.outputs.status || 'failed' }}
           TARGET_NUMBER: ${{ env.PR_NUMBER }}
+          CANCELLED_BY: ${{ steps.progress_status.outputs.cancelled_by }}
         run: node .agent/dist/cli/post-comment.js
 
       - name: Post unsupported status
@@ -295,6 +313,7 @@ jobs:
           always() &&
           steps.pr.outputs.cross_repo != 'true' &&
           steps.pr.outputs.pr_state == 'OPEN' &&
+          steps.progress_status.outputs.cancelled != 'true' &&
           inputs.orchestration_enabled == 'true'
         env:
           AUTOMATION_CURRENT_ROUND: ${{ inputs.automation_current_round }}
@@ -308,6 +327,6 @@ jobs:
           REQUEST_TEXT: ${{ inputs.request_text }}
           SESSION_BUNDLE_MODE: ${{ inputs.session_bundle_mode || vars.AGENT_SESSION_BUNDLE_MODE || 'auto' }}
           SOURCE_ACTION: fix-pr
-          SOURCE_CONCLUSION: ${{ steps.response.outputs.status || 'failed' }}
+          SOURCE_CONCLUSION: ${{ steps.progress_status.outputs.status || steps.response.outputs.status || 'failed' }}
           TARGET_NUMBER: ${{ env.PR_NUMBER }}
         run: node .agent/dist/cli/dispatch-agent-orchestrator.js

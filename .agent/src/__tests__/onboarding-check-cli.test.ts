@@ -66,11 +66,15 @@ if [ "$1" = "issue" ] && [ "$2" = "create" ]; then
   printf 'https://github.com/self-evolving/repo/issues/77\\n'
   exit 0
 fi
+if [ "$1" = "issue" ] && [ "$2" = "edit" ]; then
+  exit 0
+fi
 if [ "$1" = "api" ] && [[ "$2" == repos/*/issues/77/comments ]]; then
   printf '[]'
   exit 0
 fi
-if [ "$1" = "issue" ] && [ "$2" = "comment" ]; then
+if [ "$1" = "api" ] && [ "$2" = "--method" ] && [ "$3" = "POST" ] && [[ "$4" == repos/*/issues/77/comments ]]; then
+  printf '999\\n'
   exit 0
 fi
 printf 'unexpected gh args: %s\\n' "$*" >&2
@@ -93,13 +97,16 @@ exit 1
     assert.match(result.stdout, /Sepo onboarding issue is #77/);
     const log = readFileSync(logPath, "utf8");
     assert.match(log, /^label create agent\/answer --color 1f883d --description Ask Sepo to answer/m);
+    assert.doesNotMatch(log, /^label create agent\/add-rubrics /m);
     assert.match(log, /^label create agent\/orchestrate --color fb8c00 --description Ask Sepo to run/m);
+    assert.match(log, /^label create agent --color 0e8a16 --description Handled by the agent --repo self-evolving\/repo$/m);
     assert.match(
       log,
       /^label create agent-goal --color 5319e7 --description Marks an issue as a repository-level goal for Sepo planning/m,
     );
     assert.match(log, /^issue create --title Sepo setup check --body-file .+ --repo self-evolving\/repo$/m);
-    assert.match(log, /^issue comment 77 --body <!-- sepo-agent-onboarding-check -->/m);
+    assert.match(log, /^issue edit 77 --add-label agent --repo self-evolving\/repo$/m);
+    assert.match(log, /^api --method POST repos\/self-evolving\/repo\/issues\/77\/comments -f body=<!-- sepo-agent-onboarding-check -->/m);
     const issueBody = readOnboardingIssueBody(
       log,
       /^issue create --title Sepo setup check --body-file ([^ ]*sepo-onboarding-[a-f0-9]+\.md) --repo self-evolving\/repo$/m,
@@ -162,7 +169,7 @@ fi
 if [ "$1" = "issue" ] && [ "$2" = "edit" ]; then
   exit 0
 fi
-if [ "$1" = "api" ] && [ "$2" = "-X" ] && [ "$3" = "PATCH" ]; then
+if [ "$1" = "api" ] && [ "$2" = "--method" ] && [ "$3" = "PATCH" ]; then
   exit 0
 fi
 printf 'unexpected gh args: %s\\n' "$*" >&2
@@ -181,13 +188,14 @@ exit 1
     assert.doesNotMatch(log, /^issue create /m);
     assert.doesNotMatch(log, /^label create /m);
     assert.match(log, /^issue edit 5 --repo self-evolving\/repo --body-file .+$/m);
+    assert.match(log, /^issue edit 5 --add-label agent --repo self-evolving\/repo$/m);
     const updatedIssueBody = readOnboardingIssueBody(
       log,
       /^issue edit 5 --repo self-evolving\/repo --body-file ([^ ]*sepo-onboarding-[a-f0-9]+\.md)$/m,
     );
     assert.equal(updatedIssueBody, expectedSetupIssueBody);
     assert.doesNotMatch(updatedIssueBody, /@sepo-agent/);
-    assert.match(log, /^api -X PATCH repos\/self-evolving\/repo\/issues\/comments\/123 -f body=<!-- sepo-agent-onboarding-check -->/m);
+    assert.match(log, /^api --method PATCH repos\/self-evolving\/repo\/issues\/comments\/123 -f body=<!-- sepo-agent-onboarding-check -->/m);
     assert.match(log, /GitHub App\/auth: not resolved/);
     assert.match(log, /Model credentials: not configured/);
     assert.match(
@@ -236,7 +244,7 @@ fi
 if [ "$1" = "issue" ] && [ "$2" = "edit" ]; then
   exit 0
 fi
-if [ "$1" = "api" ] && [ "$2" = "-X" ] && [ "$3" = "PATCH" ]; then
+if [ "$1" = "api" ] && [ "$2" = "--method" ] && [ "$3" = "PATCH" ]; then
   exit 0
 fi
 printf 'unexpected gh args: %s\\n' "$*" >&2

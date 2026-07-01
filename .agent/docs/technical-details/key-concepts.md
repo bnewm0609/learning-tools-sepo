@@ -30,11 +30,14 @@ A route is the high-level backend behavior being run. Current first-class routes
 
 - `answer`
 - `implement`
+- `add-rubrics`
 - `fix-pr`
 - `review`
 - `agent-self-approve`
 - `agent-self-merge`
 - `create-action`
+- `install`
+- `update-agent`
 - `dispatch`
 - `skill`
 - `rubrics-review`
@@ -67,7 +70,7 @@ Every agent run receives a shared metadata envelope.
 |---|---|
 | `schema_version` | Envelope version, currently `1` |
 | `repo_slug` | Repository as `owner/repo` |
-| `route` | agent action like `review`, `implement`, `fix-pr`, `answer`, `agent-self-approve`, `agent-self-merge`, `create-action`, `dispatch`, or `skill` |
+| `route` | agent action like `review`, `implement`, `add-rubrics`, `fix-pr`, `answer`, `agent-self-approve`, `agent-self-merge`, `create-action`, `install`, `update-agent`, `dispatch`, or `skill` |
 | `source_kind` | Triggering surface, such as `issue_comment`, `pull_request_review`, or `workflow_dispatch` |
 | `target_kind` | `issue`, `pull_request`, `discussion`, or `repository` |
 | `target_number`, `target_url` | Canonical target identity. Repo-scoped runs reserve `target_number=0` and use the repository URL. |
@@ -112,7 +115,7 @@ The agent composes long-lived memory across runs on a dedicated `agent/memory` b
 
 ## User/team rubrics
 
-Rubrics live on a separate `agent/rubrics` branch, governed by `AGENT_RUBRICS_POLICY`. Rubrics are normative user/team preferences: what users want the agent to optimize for during implementation and what review should score against. Normal implementation and review runs read rubrics; `Agent / Rubrics / Update` is the dedicated write path. See [User/team rubrics](../architecture/rubrics.md).
+Rubrics live on a separate `agent/rubrics` branch, governed by `AGENT_RUBRICS_POLICY`. Rubrics are normative user/team preferences: what users want the agent to optimize for during implementation and what review should score against. Normal implementation, fix, and review runs read rubrics; `add-rubrics` proposes rubric edits through a PR, while `Agent / Rubrics / Update` remains the post-merge learning write path. See [User/team rubrics](../architecture/rubrics.md).
 
 ## Runtime dependencies
 
@@ -123,7 +126,7 @@ Remaining runner requirements:
 - `git`, `gh`, `jq`, `curl`, `bash`, and network access
 - one GitHub auth mode
 - `id-token: write` for the official hosted auth path
-- `OPENAI_API_KEY` for Codex-backed workflows
+- `OPENAI_API_KEY` for Codex-backed workflows; Sepo passes it through as `OPENAI_API_KEY` and mirrors it to acpx Codex auth aliases at runtime
 - optional `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` for Claude-backed routes
 
 ## Tests

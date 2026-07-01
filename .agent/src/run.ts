@@ -58,6 +58,8 @@ import {
   parseSessionBundleMode,
   shouldBackupSessionBundles,
 } from "./session-bundle.js";
+import { buildSharedEnv } from "./runtime-env.js";
+import { buildAnswerReviewContext } from "./answer-review-context.js";
 
 // --- Logging ---
 
@@ -74,6 +76,8 @@ const SUPPLEMENTAL_PROMPT_VAR_NAMES = [
   "RUBRICS_DIR",
   "RUBRICS_REF",
   "RUBRICS_CONTEXT_FILE",
+  "AGENT_CWD",
+  "AGENT_RUNTIME_DIR",
   "REQUEST_COMMENT_ID",
   "REQUEST_COMMENT_URL",
   "REQUEST_SOURCE_KIND",
@@ -128,7 +132,9 @@ const PROMPT_TEMPLATES: Record<string, string> = {
   "fix-pr": ".github/prompts/agent-fix-pr.md",
   answer: ".github/prompts/agent-answer.md",
   "create-action": ".github/prompts/agent-create-action.md",
+  "add-rubrics": ".github/prompts/agent-add-rubrics.md",
   install: ".github/prompts/agent-install.md",
+  "update-agent": ".github/prompts/agent-update.md",
   dispatch: ".github/prompts/agent-dispatch.md",
   "rubrics-review": ".github/prompts/rubrics-review.md",
   "rubrics-initialization": ".github/prompts/rubrics-initialization.md",
@@ -277,35 +283,77 @@ function persistFailureOutputs(
   return { rawStdoutFile, rawStderrFile };
 }
 
-function buildSharedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (process.env.INPUT_GITHUB_TOKEN) {
-    env.GH_TOKEN = process.env.INPUT_GITHUB_TOKEN;
-    env.GITHUB_TOKEN = process.env.INPUT_GITHUB_TOKEN;
+function parseBooleanFlag(value: string | undefined, defaultValue = false): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return defaultValue;
+  return ["true", "1", "yes", "on"].includes(normalized);
+}
+
+function extractSessionModel(sessionLog: string): string {
+  for (const raw of sessionLog.split("\n")) {
+    if (!raw.trim()) continue;
+    try {
+      const entry = JSON.parse(raw) as Record<string, unknown>;
+      if (entry.type === "session" && typeof entry.model === "string" && entry.model.trim()) {
+        return entry.model.trim();
+      }
+    } catch {
+      // Ignore malformed compact log entries.
+    }
   }
-  env.INPUT_SECONDARY_GITHUB_TOKEN = process.env.INPUT_SECONDARY_GITHUB_TOKEN || "";
-  if (process.env.INPUT_OPENAI_API_KEY) {
-    env.OPENAI_API_KEY = process.env.INPUT_OPENAI_API_KEY;
+  return "";
+}
+
+const CODEX_REASONING_MODEL_SUFFIX = /(?:\/(?:low|medium|high|xhigh)|\[(?:low|medium|high|xhigh)\])$/u;
+
+function displayReasoningEffort(options: {
+  agent: string;
+  model: string;
+  reasoningEffort: string;
+}): string {
+  const reasoningEffort = options.reasoningEffort.trim();
+  if (!reasoningEffort) return "";
+  if (
+    options.agent.trim().toLowerCase() === "codex" &&
+    CODEX_REASONING_MODEL_SUFFIX.test(options.model.trim())
+  ) {
+    return "";
   }
-  if (process.env.MODEL_REASONING_EFFORT) {
-    env.MODEL_REASONING_EFFORT = process.env.MODEL_REASONING_EFFORT;
-    // Claude Code reads effort from this env var directly, so both the
-    // flow path and the direct path pick it up without session setup.
-    env.CLAUDE_CODE_EFFORT_LEVEL = process.env.MODEL_REASONING_EFFORT;
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  }
-  return env;
+  return reasoningEffort;
+}
+
+function buildModelDisplay(options: {
+  agent: string;
+  model: string;
+  reasoningEffort: string;
+  runnerName: string;
+}): string {
+  const model = options.model.trim();
+  const parts = [
+    options.agent.trim(),
+    model || "default model",
+    displayReasoningEffort({
+      agent: options.agent,
+      model,
+      reasoningEffort: options.reasoningEffort,
+    }),
+    options.runnerName.trim(),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.map((part) => `\`${part}\``).join(" | ") : "";
 }
 
 // --- Main ---
 
 function main(): void {
   const repoRoot = process.env.GITHUB_WORKSPACE || resolve(".");
+  const agentCwd = process.env.AGENT_CWD?.trim()
+    ? resolve(process.env.AGENT_CWD)
+    : repoRoot;
+  if (!existsSync(agentCwd) || !statSync(agentCwd).isDirectory()) {
+    log("error", "Agent working directory is not available", { agent_cwd: agentCwd });
+    process.exitCode = 2;
+    return;
+  }
   const agent = process.env.ACPX_AGENT;
   if (!agent) {
     log("error", "Missing required ACPX_AGENT");
@@ -347,12 +395,26 @@ function main(): void {
   for (const name of SUPPLEMENTAL_PROMPT_VAR_NAMES) {
     if (process.env[name]) promptVars[name] = process.env[name]!;
   }
+  if (envelope.route === "answer") {
+    const answerReviewContext = buildAnswerReviewContext({
+      repoSlug: promptVars.REPO_SLUG,
+      targetNumber: promptVars.TARGET_NUMBER,
+      sourceKind: promptVars.REQUEST_SOURCE_KIND || promptVars.SOURCE_KIND,
+      commentId: promptVars.REQUEST_COMMENT_ID || "",
+      commentUrl: promptVars.REQUEST_COMMENT_URL || "",
+    });
+    if (answerReviewContext) {
+      promptVars.ANSWER_REVIEW_CONTEXT = answerReviewContext;
+    }
+  }
   if (promptVars.RUBRICS_CONTEXT_FILE && existsSync(promptVars.RUBRICS_CONTEXT_FILE)) {
     promptVars.RUBRICS_CONTEXT = readFileSync(promptVars.RUBRICS_CONTEXT_FILE, "utf8");
   }
   // Aliases for backward compat
   promptVars.PR_NUMBER = promptVars.TARGET_NUMBER;
   promptVars.GITHUB_REPOSITORY = promptVars.REPO_SLUG;
+  promptVars.AGENT_CWD = agentCwd;
+  promptVars.AGENT_RUNTIME_DIR = repoRoot;
 
   const prompt = renderPrompt(templatePath, promptVars, repoRoot);
   const continuationPrompt = buildContinuationPrompt(promptVars);
@@ -383,6 +445,8 @@ function main(): void {
   setOutput("envelope_route", envelope.route);
   setOutput("raw_stdout_file", "");
   setOutput("raw_stderr_file", "");
+  setOutput("model", process.env.MODEL_ID?.trim() || "");
+  setOutput("model_display", "");
   setOutput("resume_status", "not_attempted");
   setOutput("last_resume_error", "");
   setOutput(
@@ -404,6 +468,7 @@ function main(): void {
   runDirectPath({
     agent,
     repoRoot,
+    agentCwd,
     prompt,
     continuationPrompt: resumeContinuationPrompt,
     envelope,
@@ -419,6 +484,7 @@ function main(): void {
 function runDirectPath(opts: {
   agent: string;
   repoRoot: string;
+  agentCwd: string;
   prompt: string;
   continuationPrompt?: string;
   envelope: RuntimeEnvelope;
@@ -430,6 +496,7 @@ function runDirectPath(opts: {
   const {
     agent,
     repoRoot,
+    agentCwd,
     prompt,
     continuationPrompt,
     envelope,
@@ -546,18 +613,19 @@ function runDirectPath(opts: {
 
   log("info", "Running acpx", { agent, route: envelope.route, permission_mode: permissionMode });
   const sessionBundleMode = parseSessionBundleMode(process.env.SESSION_BUNDLE_MODE);
+  const requestedModel = process.env.MODEL_ID?.trim() || "";
 
   const result = runAcpx({
     agent,
+    model: requestedModel,
     prompt,
-    cwd: repoRoot,
+    cwd: agentCwd,
     sessionMode: sessionModeForPolicy(sessionPolicy),
     threadKey: envelope.thread_key,
     permissionMode,
     thoughtLevel: process.env.MODEL_REASONING_EFFORT,
     preserveExecSession:
       sessionPolicy === "track-only" && shouldBackupSessionBundles(sessionBundleMode, sessionPolicy),
-    preserveExecThoughtLevel: sessionPolicy === "track-only",
     resumeSessionId,
     continuationPrompt: continuationPromptAllowed ? continuationPrompt : undefined,
     env: sharedEnv,
@@ -576,6 +644,17 @@ function runDirectPath(opts: {
     session_log_length: result.sessionLog.length,
     session_ensure_outcome: result.sessionEnsureOutcome.kind,
   });
+
+  const reportedModel = extractSessionModel(result.sessionLog) || requestedModel;
+  setOutput("model", reportedModel);
+  if (parseBooleanFlag(process.env.DISPLAY_MODEL, true)) {
+    setOutput("model_display", buildModelDisplay({
+      agent,
+      model: reportedModel,
+      reasoningEffort: process.env.MODEL_REASONING_EFFORT || "",
+      runnerName: process.env.RUNNER_NAME || "",
+    }));
+  }
 
   // Display session activity in CI logs
   process.stderr.write("\n--- acpx session log ---\n");

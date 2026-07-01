@@ -8,7 +8,7 @@ This page documents the minimal path for adding the Sepo agent backend to a repo
 
 ### Public repositories
 
-For public repositories, the quickest path is to open the [Install Sepo into another repository](https://github.com/self-evolving/repo/issues/new?template=install-sepo.yml) issue form in `self-evolving/repo` and paste the target GitHub URL. Sepo prepares or reuses a focused install PR in that repo, comments with the PR link, and closes the request issue when the PR is ready.
+For public repositories, the quickest path is to open the [Install Sepo into another repository](https://github.com/self-evolving/repo/issues/new?template=install-sepo.md) issue template in `self-evolving/repo` and paste the target GitHub URL. Sepo prepares or reuses a focused install PR in that repo, comments with the PR link, and closes the request issue when the PR is ready.
 
 Authorized users can also make the same request with `/install`:
 
@@ -162,9 +162,10 @@ After the files and secrets are in place:
 
 The onboarding workflow is safe to rerun. It creates the built-in trigger labels
 (`agent/answer`, `agent/implement`, `agent/create-action`, `agent/review`,
-`agent/fix-pr`, and `agent/orchestrate`) when they are missing, then updates the
-same setup issue comment with GitHub auth, provider credentials, memory, rubrics,
-remaining setup, and test commands.
+`agent/fix-pr`, and `agent/orchestrate`) when they are missing, ensures the
+non-trigger `agent` status label exists, applies that label to the setup issue,
+then updates the same setup issue comment with GitHub auth, provider
+credentials, memory, rubrics, remaining setup, and test commands.
 
 ## Memory Setup
 
