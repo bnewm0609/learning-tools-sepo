@@ -1,11 +1,20 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 import {
   buildAcpxArgs,
+  buildClaudePinnedModelEnv,
   buildSessionSetupCommands,
   compactSessionLog,
   extractAssistantText,
@@ -88,6 +97,67 @@ test("buildAcpxArgs passes model as a global acpx flag before the agent", () => 
     "exec",
     "answer this",
   ]);
+});
+
+test("buildAcpxArgs omits --model for pinned Claude IDs (delivered via ANTHROPIC_MODEL)", () => {
+  const args = buildAcpxArgs({
+    agent: "claude",
+    model: "claude-opus-4-8",
+    prompt: "answer this",
+    permissionMode: "approve-all",
+    isExecRoute: true,
+  });
+
+  assert.equal(args.includes("--model"), false);
+  assert.deepEqual(args, [
+    "--approve-all",
+    "--format",
+    "json",
+    "--json-strict",
+    "--suppress-reads",
+    "claude",
+    "exec",
+    "answer this",
+  ]);
+});
+
+test("buildAcpxArgs keeps --model for advertised Claude aliases", () => {
+  const args = buildAcpxArgs({
+    agent: "claude",
+    model: "opus",
+    prompt: "answer this",
+    permissionMode: "approve-all",
+    isExecRoute: true,
+  });
+
+  assert.deepEqual(args.slice(5, 7), ["--model", "opus"]);
+});
+
+test("buildClaudePinnedModelEnv pins date/version Claude IDs via ANTHROPIC_MODEL", () => {
+  assert.deepEqual(buildClaudePinnedModelEnv({ agent: "claude", model: "claude-opus-4-8", env: {} }), {
+    ANTHROPIC_MODEL: "claude-opus-4-8",
+  });
+  // The 1M-context suffix is preserved.
+  assert.deepEqual(
+    buildClaudePinnedModelEnv({ agent: "claude", model: "claude-opus-4-8[1m]", env: {} }),
+    { ANTHROPIC_MODEL: "claude-opus-4-8[1m]" },
+  );
+});
+
+test("buildClaudePinnedModelEnv ignores aliases, non-Claude agents, and preset overrides", () => {
+  // Advertised alias → acpx applies it directly, no env pin.
+  assert.deepEqual(buildClaudePinnedModelEnv({ agent: "claude", model: "opus", env: {} }), {});
+  // Non-Claude agent keeps its normal model handling.
+  assert.deepEqual(buildClaudePinnedModelEnv({ agent: "codex", model: "gpt-5.5", env: {} }), {});
+  // An operator-set ANTHROPIC_MODEL is left untouched.
+  assert.deepEqual(
+    buildClaudePinnedModelEnv({
+      agent: "claude",
+      model: "claude-opus-4-8",
+      env: { ANTHROPIC_MODEL: "claude-sonnet-4-6" },
+    }),
+    {},
+  );
 });
 
 test("resolveAcpxModelSelection folds GPT-5 Codex reasoning into the model id", () => {
@@ -514,6 +584,111 @@ test("buildSessionSetupCommands skips claude setup when not approve-all", () => 
   assert.deepEqual(commands, []);
 });
 
+test("buildSessionSetupCommands omits `set model` for pinned Claude IDs", () => {
+  const commands = buildSessionSetupCommands({
+    agent: "claude",
+    sessionName: "issue-71-implement-default",
+    model: "claude-opus-4-8",
+    permissionMode: "approve-all",
+  });
+
+  // No `set model` (it would fail acpx validation on resume) — only the mode.
+  // The model is applied via ANTHROPIC_MODEL instead.
+  assert.deepEqual(commands, [
+    {
+      label: "set-mode",
+      args: ["claude", "set-mode", "-s", "issue-71-implement-default", "bypassPermissions"],
+    },
+  ]);
+});
+
+test("buildSessionSetupCommands keeps `set model` for advertised Claude aliases", () => {
+  const commands = buildSessionSetupCommands({
+    agent: "claude",
+    sessionName: "issue-71-implement-default",
+    model: "opus",
+    permissionMode: "approve-all",
+  });
+
+  assert.deepEqual(commands, [
+    {
+      label: "set model",
+      args: ["claude", "set", "model", "opus", "-s", "issue-71-implement-default"],
+    },
+    {
+      label: "set-mode",
+      args: ["claude", "set-mode", "-s", "issue-71-implement-default", "bypassPermissions"],
+    },
+  ]);
+});
+
+test("runAcpx pins Claude model via ANTHROPIC_MODEL and omits the acpx model flag", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-claude-pin-test-"));
+  const oldPath = process.env.PATH;
+  const oldModel = process.env.ANTHROPIC_MODEL;
+  delete process.env.ANTHROPIC_MODEL;
+
+  try {
+    const acpxPath = join(dir, "acpx");
+    const callsPath = join(dir, "calls.jsonl");
+    writeFileSync(
+      acpxPath,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.ACPX_TEST_CALLS,
+  JSON.stringify({ args, anthropicModel: process.env.ANTHROPIC_MODEL ?? null }) + "\\n",
+);
+if (args.includes("exec")) {
+  process.stdout.write([
+    '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"sess-claude-pin"}}',
+    '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}}}',
+    '{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}'
+  ].join("\\n") + "\\n");
+}
+`,
+      "utf8",
+    );
+    chmodSync(acpxPath, 0o755);
+    process.env.PATH = `${dir}${delimiter}${oldPath || ""}`;
+
+    const result = runAcpx({
+      agent: "claude",
+      model: "claude-opus-4-8",
+      prompt: "answer this",
+      cwd: process.cwd(),
+      sessionMode: "exec",
+      permissionMode: "approve-all",
+      env: { ACPX_TEST_CALLS: callsPath },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "Done.");
+
+    const calls = readFileSync(callsPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { args: string[]; anthropicModel: string | null });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.includes("--model"), false);
+    assert.equal(calls[0].anthropicModel, "claude-opus-4-8");
+  } finally {
+    if (oldPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = oldPath;
+    }
+    if (oldModel === undefined) {
+      delete process.env.ANTHROPIC_MODEL;
+    } else {
+      process.env.ANTHROPIC_MODEL = oldModel;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("extractAssistantText returns the last message from a compacted log", () => {
   const log = [
     '{"type":"message","text":"Checking the repo."}',
@@ -576,6 +751,126 @@ test("runCommandWithFileCapture treats signal-terminated processes as failures",
   });
 
   assert.equal(result.exitCode, 1);
+});
+
+test("runCommandWithFileCapture removes the ephemeral capture directory when progress stream is unset", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-capture-root-test-"));
+  const oldTmpdir = process.env.TMPDIR;
+  const oldProgressStreamFile = process.env.AGENT_PROGRESS_STREAM_FILE;
+  process.env.TMPDIR = dir;
+  delete process.env.AGENT_PROGRESS_STREAM_FILE;
+
+  try {
+    const result = runCommandWithFileCapture({
+      command: process.execPath,
+      args: ["-e", 'process.stdout.write("hello\\n")'],
+      cwd: process.cwd(),
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "hello\n");
+    assert.deepEqual(
+      readdirSync(dir).filter((entry) => entry.startsWith("acpx-capture-")),
+      [],
+    );
+  } finally {
+    if (oldTmpdir === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = oldTmpdir;
+    }
+    if (oldProgressStreamFile === undefined) {
+      delete process.env.AGENT_PROGRESS_STREAM_FILE;
+    } else {
+      process.env.AGENT_PROGRESS_STREAM_FILE = oldProgressStreamFile;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCommandWithFileCapture persists stdout at AGENT_PROGRESS_STREAM_FILE", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-progress-stream-test-"));
+  try {
+    const streamPath = join(dir, "progress.ndjson");
+    const result = runCommandWithFileCapture({
+      command: process.execPath,
+      args: ["-e", 'process.stdout.write("one\\n"); process.stdout.write("two\\n");'],
+      cwd: process.cwd(),
+      env: { ...process.env, AGENT_PROGRESS_STREAM_FILE: streamPath },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "one\ntwo\n");
+    assert.equal(readFileSync(streamPath, "utf8"), "one\ntwo\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCommandWithFileCapture exposes progress stream growth during the run", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-progress-growth-test-"));
+  try {
+    const streamPath = join(dir, "progress.ndjson");
+    const observedPath = join(dir, "observed.txt");
+    const result = runCommandWithFileCapture({
+      command: process.execPath,
+      args: [
+        "-e",
+        `
+const fs = require("node:fs");
+process.stdout.write("first\\n", () => {
+  fs.writeFileSync(process.env.ACPX_TEST_OBSERVED_FILE, fs.readFileSync(process.env.AGENT_PROGRESS_STREAM_FILE, "utf8"));
+  setTimeout(() => {
+    process.stdout.write("second\\n", () => process.exit(0));
+  }, 25);
+});
+`,
+      ],
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        AGENT_PROGRESS_STREAM_FILE: streamPath,
+        ACPX_TEST_OBSERVED_FILE: observedPath,
+      },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(readFileSync(observedPath, "utf8"), "first\n");
+    assert.equal(readFileSync(streamPath, "utf8"), "first\nsecond\n");
+    assert.equal(result.stdout, "first\nsecond\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runCommandWithFileCapture falls back when AGENT_PROGRESS_STREAM_FILE is unusable", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-progress-fallback-test-"));
+  const warnings: string[] = [];
+  const oldWarn = console.warn;
+
+  try {
+    const invalidParent = join(dir, "not-a-directory");
+    const streamPath = join(invalidParent, "progress.ndjson");
+    writeFileSync(invalidParent, "file parent", "utf8");
+    console.warn = (message?: unknown, ...optionalParams: unknown[]) => {
+      warnings.push([message, ...optionalParams].map(String).join(" "));
+    };
+
+    const result = runCommandWithFileCapture({
+      command: process.execPath,
+      args: ["-e", 'process.stdout.write("fallback\\n")'],
+      cwd: process.cwd(),
+      env: { ...process.env, AGENT_PROGRESS_STREAM_FILE: streamPath },
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "fallback\n");
+    assert.equal(existsSync(streamPath), false);
+    assert.match(warnings.join("\n"), /AGENT_PROGRESS_STREAM_FILE .*falling back to ephemeral acpx stdout capture/);
+  } finally {
+    console.warn = oldWarn;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("compactSessionLog merges tokens and keeps structured events", () => {
@@ -664,6 +959,48 @@ test("readSessionIdentityResult streams large acpx metadata through file capture
       delete process.env.PATH;
     } else {
       process.env.PATH = oldPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readSessionIdentityResult does not overwrite the agent progress stream file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "acpx-identity-progress-test-"));
+  const oldPath = process.env.PATH;
+  const oldProgressStreamFile = process.env.AGENT_PROGRESS_STREAM_FILE;
+  try {
+    const acpxPath = join(dir, "acpx");
+    const streamPath = join(dir, "progress.ndjson");
+    writeFileSync(streamPath, "main agent stream\n", "utf8");
+    writeFileSync(
+      acpxPath,
+      `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ acpxRecordId: "record-123", acpSessionId: "session-456" }));\n`,
+      "utf8",
+    );
+    chmodSync(acpxPath, 0o755);
+    process.env.PATH = `${dir}${delimiter}${oldPath || ""}`;
+    process.env.AGENT_PROGRESS_STREAM_FILE = streamPath;
+
+    const result = readSessionIdentityResult("codex", "session-name", process.cwd());
+
+    assert.deepEqual(result, {
+      identity: {
+        acpxRecordId: "record-123",
+        acpxSessionId: "session-456",
+      },
+      error: "",
+    });
+    assert.equal(readFileSync(streamPath, "utf8"), "main agent stream\n");
+  } finally {
+    if (oldPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = oldPath;
+    }
+    if (oldProgressStreamFile === undefined) {
+      delete process.env.AGENT_PROGRESS_STREAM_FILE;
+    } else {
+      process.env.AGENT_PROGRESS_STREAM_FILE = oldProgressStreamFile;
     }
     rmSync(dir, { recursive: true, force: true });
   }

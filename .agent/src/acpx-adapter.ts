@@ -92,10 +92,15 @@ const PERSISTENT_SESSION_MODE = "full-access";
 const CLAUDE_BYPASS_MODE = "bypassPermissions";
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
 const ACPX_MAX_BUFFER = 50 * 1024 * 1024; // 50 MB
+const AGENT_PROGRESS_STREAM_FILE_ENV = "AGENT_PROGRESS_STREAM_FILE";
 const TRANSIENT_EXEC_SESSION_BYTES = 6;
 const CODEX_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const CODEX_REASONING_SUFFIX = /(?:\/(?:low|medium|high|xhigh)|\[(?:low|medium|high|xhigh)\])$/u;
 const CODEX_REASONING_MODEL_PREFIX = /^gpt-5(?:[.-]|$)/u;
+// Date/version-pinned Claude model IDs (e.g. "claude-opus-4-8" or
+// "claude-opus-4-8[1m]"), as opposed to adapter-advertised aliases such as
+// "opus"/"sonnet"/"haiku".
+const CLAUDE_PINNED_MODEL_PATTERN = /^claude-[A-Za-z0-9._-]+(?:\[[A-Za-z0-9._-]+\])?$/u;
 
 export interface FileCaptureRunOptions {
   command: string;
@@ -120,18 +125,33 @@ export interface FileCaptureRunResult {
  */
 export function runCommandWithFileCapture(options: FileCaptureRunOptions): FileCaptureRunResult {
   const captureDir = mkdtempSync(join(tmpdir(), "acpx-capture-"));
-  const stdoutPath = join(captureDir, "stdout.log");
+  const fallbackStdoutPath = join(captureDir, "stdout.log");
   const stderrPath = join(captureDir, "stderr.log");
+  const env = options.env ?? process.env;
+  const configuredStdoutPath = env[AGENT_PROGRESS_STREAM_FILE_ENV]?.trim() || "";
+  let stdoutPath = configuredStdoutPath || fallbackStdoutPath;
   let stdoutFd: number | null = null;
   let stderrFd: number | null = null;
 
   try {
-    stdoutFd = openSync(stdoutPath, "w");
+    try {
+      stdoutFd = openSync(stdoutPath, "w");
+    } catch (err) {
+      if (!configuredStdoutPath) {
+        throw err;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `${AGENT_PROGRESS_STREAM_FILE_ENV} '${configuredStdoutPath}' is not writable; falling back to ephemeral acpx stdout capture: ${message}`,
+      );
+      stdoutPath = fallbackStdoutPath;
+      stdoutFd = openSync(stdoutPath, "w");
+    }
     stderrFd = openSync(stderrPath, "w");
 
     const result = spawnSync(options.command, options.args, {
       cwd: options.cwd,
-      env: options.env,
+      env,
       stdio: ["ignore", stdoutFd, stderrFd],
       timeout: options.timeout ? options.timeout * 1000 : undefined,
     });
@@ -223,6 +243,43 @@ function isCodexAgent(agent: string): boolean {
   return agent.trim().toLowerCase() === "codex";
 }
 
+function isClaudeAgent(agent: string): boolean {
+  return agent.trim().toLowerCase() === "claude";
+}
+
+/**
+ * Claude ACP advertises models as aliases ("opus", "sonnet", ...), not
+ * date/version-pinned IDs. Passing a pinned `claude-*` ID through acpx's
+ * `--model` / `set model` fails validation against the advertised menu — and
+ * crashes specifically on session resume, where the adapter surfaces that menu.
+ * For pinned IDs we instead select the exact model via the Claude Agent SDK's
+ * `ANTHROPIC_MODEL` env var and omit the acpx model flag entirely.
+ */
+function usesClaudePinnedModelEnv(agent: string, model?: string): boolean {
+  return isClaudeAgent(agent) && CLAUDE_PINNED_MODEL_PATTERN.test(model?.trim() ?? "");
+}
+
+/**
+ * Environment overrides that pin a Claude model via `ANTHROPIC_MODEL`. Returns
+ * an empty object for non-Claude agents, advertised aliases (which acpx applies
+ * directly), or when `ANTHROPIC_MODEL` is already set by the operator.
+ */
+export function buildClaudePinnedModelEnv(options: {
+  agent: string;
+  model?: string;
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+}): Record<string, string> {
+  const model = options.model?.trim() ?? "";
+  if (!usesClaudePinnedModelEnv(options.agent, model)) {
+    return {};
+  }
+  const existingEnv = options.env ?? process.env;
+  if (existingEnv.ANTHROPIC_MODEL) {
+    return {};
+  }
+  return { ANTHROPIC_MODEL: model };
+}
+
 export interface AcpxModelSelection {
   model?: string;
   thoughtLevel?: string;
@@ -303,7 +360,10 @@ export function buildAcpxArgs(options: {
   }
   const model = options.model?.trim();
   const usesNamedSession = !options.isExecRoute && Boolean(options.sessionName);
-  if (model && !usesNamedSession) {
+  // Pinned Claude IDs are delivered via ANTHROPIC_MODEL (see
+  // buildClaudePinnedModelEnv); passing them as --model would fail acpx's
+  // advertised-model validation on resume.
+  if (model && !usesNamedSession && !usesClaudePinnedModelEnv(options.agent, model)) {
     args.push("--model", model);
   }
 
@@ -361,7 +421,10 @@ export function buildSessionSetupCommands(options: {
     thoughtLevel: options.thoughtLevel,
   });
   const commands: SessionSetupCommand[] = [];
-  if (modelSelection.model) {
+  // Pinned Claude IDs are delivered via ANTHROPIC_MODEL, not `set model`, which
+  // acpx validates against the adapter's advertised aliases (and rejects on
+  // resume). Advertised aliases still flow through `set model` normally.
+  if (modelSelection.model && !usesClaudePinnedModelEnv(options.agent, modelSelection.model)) {
     commands.push({
       label: "set model",
       args: [options.agent, "set", "model", modelSelection.model, "-s", options.sessionName],
@@ -745,6 +808,10 @@ export function runAcpx(options: AcpxRunOptions): AcpxRunResult {
   const modelSelection = resolveAcpxModelSelection({ agent, model, thoughtLevel });
   const selectedModel = modelSelection.model;
   const selectedThoughtLevel = modelSelection.thoughtLevel;
+  // Pin Claude models via ANTHROPIC_MODEL on every acpx spawn (session ensure,
+  // setup commands, and the prompt) so the exact model applies to new and
+  // resumed sessions alike, without tripping acpx's --model validation.
+  Object.assign(env, buildClaudePinnedModelEnv({ agent, model: selectedModel, env }));
   const needsTransientExecSession =
     preserveExecSession === true ||
     (isExecRoute && isCodexAgent(agent) && Boolean(selectedThoughtLevel));
@@ -867,10 +934,13 @@ export function readSessionIdentityResult(
   cwd: string,
 ): SessionIdentityReadResult {
   try {
+    const env = { ...process.env };
+    delete env[AGENT_PROGRESS_STREAM_FILE_ENV];
     const result = runCommandWithFileCapture({
       command: "acpx",
       args: ["--format", "json", agent, "sessions", "show", sessionName],
       cwd,
+      env,
     });
 
     if (result.exitCode !== 0) {
